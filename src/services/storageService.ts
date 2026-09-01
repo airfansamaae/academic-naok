@@ -15,14 +15,31 @@ const STORAGE_KEYS = {
   ANNOUNCEMENTS: 'academic_announcements_v1',
   SCHOOL: 'academic_school_v1',
   CURRENT_USER: 'academic_current_user_v1',
+  LOCAL_VERSION: 'academic_data_version_v1',
 };
+
+export interface SyncStatusInfo {
+  status: 'synced' | 'syncing' | 'offline';
+  lastSyncedAt: Date | null;
+  mode: 'realtime_active' | 'polling' | 'local';
+}
 
 export class StorageService {
   private static instance: StorageService;
   private listeners: Set<() => void> = new Set();
+  private syncListeners: Set<(info: SyncStatusInfo) => void> = new Set();
+  private broadcastChannel: BroadcastChannel | null = null;
+  private isSyncing: boolean = false;
+  private lastRemoteVersion: number = 0;
+  private syncInfo: SyncStatusInfo = {
+    status: 'synced',
+    lastSyncedAt: new Date(),
+    mode: 'realtime_active',
+  };
 
   private constructor() {
     this.initializeDefaults();
+    this.initRealtimeSync();
   }
 
   public static getInstance(): StorageService {
@@ -68,6 +85,214 @@ export class StorageService {
       // Default to Master Admin for easy testing
       localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(INITIAL_USERS[0]));
     }
+  }
+
+  // --- Real-time Multi-browser Sync Engine ---
+  private initRealtimeSync() {
+    // 1. Cross-tab Broadcast Channel (Instant sync across tabs in same browser)
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        this.broadcastChannel = new BroadcastChannel('academic_hub_realtime_sync');
+        this.broadcastChannel.onmessage = (event) => {
+          if (event.data && event.data.type === 'DATA_UPDATED') {
+            this.pullLatestFromCloud(true);
+          }
+        };
+      }
+    } catch {
+      // Fallback
+    }
+
+    // 2. Initial Cloud Pull & Seed Check
+    setTimeout(() => {
+      this.pullLatestFromCloud();
+    }, 500);
+
+    // 3. Periodic Background Sync Polling (Every 6 seconds)
+    setInterval(() => {
+      this.checkRemoteVersionAndSync();
+    }, 6000);
+
+    // 4. Instant Sync on Window Focus / Visibility Change
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', () => {
+        this.pullLatestFromCloud();
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          this.pullLatestFromCloud();
+        }
+      });
+    }
+  }
+
+  public getSyncStatus(): SyncStatusInfo {
+    return this.syncInfo;
+  }
+
+  public subscribeSync(callback: (info: SyncStatusInfo) => void): () => void {
+    this.syncListeners.add(callback);
+    callback(this.syncInfo);
+    return () => this.syncListeners.delete(callback);
+  }
+
+  private notifySync(status: 'synced' | 'syncing' | 'offline') {
+    this.syncInfo = {
+      status,
+      lastSyncedAt: status === 'synced' ? new Date() : this.syncInfo.lastSyncedAt,
+      mode: 'realtime_active',
+    };
+    this.syncListeners.forEach((listener) => {
+      try {
+        listener(this.syncInfo);
+      } catch {
+        // ignore
+      }
+    });
+  }
+
+  // High-speed lightweight check for changes
+  private async checkRemoteVersionAndSync() {
+    if (this.isSyncing) return;
+    try {
+      const res = await fetch('/api/sync/version', { cache: 'no-store' });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.version && json.version > this.lastRemoteVersion) {
+          await this.pullLatestFromCloud();
+        }
+      }
+    } catch {
+      // Offline / Static fallback
+    }
+  }
+
+  // Full Pull & Merge with Cloud Data (D1 / Server)
+  public async pullLatestFromCloud(silent: boolean = false): Promise<boolean> {
+    if (this.isSyncing) return false;
+    this.isSyncing = true;
+    if (!silent) this.notifySync('syncing');
+
+    try {
+      const res = await fetch('/api/data/all', { cache: 'no-store' });
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.data) {
+          const remoteData = json.data;
+          let changed = false;
+
+          if (Array.isArray(remoteData.users) && remoteData.users.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(remoteData.users));
+            changed = true;
+          }
+          if (Array.isArray(remoteData.assignments) && remoteData.assignments.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.ASSIGNMENTS, JSON.stringify(remoteData.assignments));
+            changed = true;
+          }
+          if (Array.isArray(remoteData.submissions) && remoteData.submissions.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(remoteData.submissions));
+            changed = true;
+          }
+          if (Array.isArray(remoteData.documents) && remoteData.documents.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(remoteData.documents));
+            changed = true;
+          }
+          if (Array.isArray(remoteData.announcements) && remoteData.announcements.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(remoteData.announcements));
+            changed = true;
+          }
+          if (json.school && json.school.name) {
+            localStorage.setItem(STORAGE_KEYS.SCHOOL, JSON.stringify(json.school));
+            changed = true;
+          }
+
+          if (json.version) {
+            this.lastRemoteVersion = json.version;
+          }
+
+          if (changed) {
+            this.notify();
+          }
+        }
+        this.notifySync('synced');
+        return true;
+      } else {
+        this.notifySync('synced');
+        return false;
+      }
+    } catch {
+      this.notifySync('offline');
+      return false;
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  // Push local change to Cloud API / D1 & Broadcast
+  private async broadcastChange(table: string, action: 'insert' | 'update' | 'delete' | 'setList', data: any) {
+    // 1. Broadcast locally across tabs
+    if (this.broadcastChannel) {
+      try {
+        this.broadcastChannel.postMessage({ type: 'DATA_UPDATED', table, action, timestamp: Date.now() });
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2. Push to Server / Cloudflare Functions / D1
+    try {
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          table,
+          action,
+          data,
+          school: table === 'school' ? data : undefined,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.version) {
+          this.lastRemoteVersion = result.version;
+        }
+        this.notifySync('synced');
+      }
+    } catch {
+      // Gracefully continue offline
+    }
+  }
+
+  // Sync entire local state up to Cloud on initial connection
+  public async pushFullStateToCloud() {
+    this.notifySync('syncing');
+    try {
+      const fullState = {
+        users: this.getUsers(),
+        assignments: this.getAssignments(),
+        submissions: this.getSubmissions(),
+        documents: this.getDocuments(),
+        announcements: this.getAnnouncements(),
+        school: this.getSchoolProfile(),
+      };
+
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullState }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.version) this.lastRemoteVersion = result.version;
+        this.notifySync('synced');
+        return true;
+      }
+    } catch {
+      this.notifySync('offline');
+    }
+    return false;
   }
 
   public subscribe(callback: () => void): () => void {
@@ -143,7 +368,6 @@ export class StorageService {
       return { success: false, message: 'บัญชีผู้ใช้นี้ไม่ได้รับการอนุมัติการเข้าใช้งาน' };
     }
 
-    // In a real app password would be hashed. For testing/demo, any matching or generic pass works
     this.setCurrentUser(found);
     return { success: true, user: found };
   }
@@ -172,7 +396,7 @@ export class StorageService {
       username: userData.username,
       fullName: userData.fullName,
       role: 'member',
-      status: 'pending', // Pending Admin approval
+      status: 'pending',
       email: userData.email || `${userData.username}@krabiedu.go.th`,
       department: userData.department,
       position: userData.position || 'ครูผู้สอน',
@@ -183,6 +407,7 @@ export class StorageService {
 
     users.push(newUser);
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+    this.broadcastChange('users', 'insert', newUser);
     this.notify();
     return { 
       success: true, 
@@ -192,28 +417,35 @@ export class StorageService {
   }
 
   public updateUserStatus(userId: string, newStatus: 'approved' | 'pending' | 'rejected') {
+    let updatedUser: User | null = null;
     const users = this.getUsers().map(u => {
       if (u.id === userId) {
-        return { ...u, status: newStatus, updatedAt: new Date().toISOString() };
+        updatedUser = { ...u, status: newStatus, updatedAt: new Date().toISOString() };
+        return updatedUser;
       }
       return u;
     });
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+    if (updatedUser) {
+      this.broadcastChange('users', 'update', updatedUser);
+    }
     this.notify();
   }
 
   public deleteUser(userId: string): boolean {
     const users = this.getUsers().filter(u => u.id !== userId);
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+    this.broadcastChange('users', 'delete', { id: userId });
     this.notify();
     return true;
   }
 
   public updateUserProfile(userId: string, updates: Partial<User>) {
+    let updatedUser: User | null = null;
     const users = this.getUsers().map(u => {
       if (u.id === userId) {
         const updated = { ...u, ...updates, updatedAt: new Date().toISOString() };
-        // If updating current user, refresh active session
+        updatedUser = updated;
         const current = this.getCurrentUser();
         if (current && current.id === userId) {
           localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(updated));
@@ -223,6 +455,9 @@ export class StorageService {
       return u;
     });
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+    if (updatedUser) {
+      this.broadcastChange('users', 'update', updatedUser);
+    }
     this.notify();
   }
 
@@ -243,7 +478,6 @@ export class StorageService {
     const assignments = this.getAssignments();
     const currentUser = this.getCurrentUser();
     
-    // Auto-create folder name based on topic name for Google Drive sync
     const folderSlug = data.title.replace(/\s+/g, '_').substring(0, 30);
     const driveFolderId = `1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-f_${Date.now()}`;
     const driveFolderName = `${assignments.length + 1}_${folderSlug}`;
@@ -269,8 +503,8 @@ export class StorageService {
 
     assignments.unshift(newAssignment);
     localStorage.setItem(STORAGE_KEYS.ASSIGNMENTS, JSON.stringify(assignments));
+    this.broadcastChange('assignments', 'insert', newAssignment);
 
-    // If type is announcement or has deadline, also create announcement record
     if (data.type === 'announcement') {
       this.createAnnouncement({
         title: `ประกาศ: ${data.title}`,
@@ -296,18 +530,22 @@ export class StorageService {
   }
 
   public updateAssignment(id: string, updates: Partial<Assignment>) {
+    let updatedAssign: Assignment | null = null;
     const assignments = this.getAssignments().map(a => {
       if (a.id === id) {
-        return { ...a, ...updates, updatedAt: new Date().toISOString() };
+        updatedAssign = { ...a, ...updates, updatedAt: new Date().toISOString() };
+        return updatedAssign;
       }
       return a;
     });
     localStorage.setItem(STORAGE_KEYS.ASSIGNMENTS, JSON.stringify(assignments));
+    if (updatedAssign) {
+      this.broadcastChange('assignments', 'update', updatedAssign);
+    }
     this.notify();
   }
 
   public deleteAssignment(id: string) {
-    // Delete related submissions and their Google Drive files
     const submissions = this.getSubmissions();
     const relatedSubs = submissions.filter(s => s.assignmentId === id);
     const driveFileIds: string[] = [];
@@ -325,13 +563,15 @@ export class StorageService {
 
     const remainingSubs = submissions.filter(s => s.assignmentId !== id);
     localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(remainingSubs));
+    this.broadcastChange('submissions', 'setList', remainingSubs);
 
     const assignments = this.getAssignments().filter(a => a.id !== id);
     localStorage.setItem(STORAGE_KEYS.ASSIGNMENTS, JSON.stringify(assignments));
+    this.broadcastChange('assignments', 'delete', { id });
 
-    // Also remove related announcements
     const announcements = this.getAnnouncements().filter(ann => ann.assignmentId !== id);
     localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(announcements));
+    this.broadcastChange('announcements', 'setList', announcements);
 
     this.notify();
   }
@@ -368,12 +608,13 @@ export class StorageService {
       updatedAt: new Date().toISOString(),
     };
 
-    // Replace if user had existing submission or append
     const existingIndex = submissions.findIndex(s => s.assignmentId === data.assignmentId && s.memberId === currentUser?.id);
     if (existingIndex >= 0) {
       submissions[existingIndex] = { ...submissions[existingIndex], ...newSub, id: submissions[existingIndex].id };
+      this.broadcastChange('submissions', 'update', submissions[existingIndex]);
     } else {
       submissions.unshift(newSub);
+      this.broadcastChange('submissions', 'insert', newSub);
     }
 
     localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(submissions));
@@ -382,17 +623,21 @@ export class StorageService {
   }
 
   public updateSubmission(id: string, updates: Partial<Submission>) {
+    let updatedSub: Submission | null = null;
     const submissions = this.getSubmissions().map(s => {
       if (s.id === id) {
-        return { ...s, ...updates, updatedAt: new Date().toISOString() };
+        updatedSub = { ...s, ...updates, updatedAt: new Date().toISOString() };
+        return updatedSub;
       }
       return s;
     });
     localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(submissions));
+    if (updatedSub) {
+      this.broadcastChange('submissions', 'update', updatedSub);
+    }
     this.notify();
   }
 
-  // Safe file delete from submission (NEVER deletes folders)
   public deleteFileFromSubmission(submissionId: string, fileId: string, currentUserId: string, isAdmin: boolean): boolean {
     const submissions = this.getSubmissions();
     const subIndex = submissions.findIndex(s => s.id === submissionId);
@@ -405,20 +650,20 @@ export class StorageService {
 
     const targetFile = sub.files.find(f => f.id === fileId);
     if (targetFile?.driveFileId) {
-      // Trigger automatic deletion in Google Drive
       this.deleteFileFromGoogleDrive(targetFile.driveFileId);
     }
 
     const updatedFiles = sub.files.filter(f => f.id !== fileId);
     if (updatedFiles.length === 0) {
-      // If no files left, remove submission
       submissions.splice(subIndex, 1);
+      this.broadcastChange('submissions', 'delete', { id: submissionId });
     } else {
       submissions[subIndex] = {
         ...sub,
         files: updatedFiles,
         updatedAt: new Date().toISOString()
       };
+      this.broadcastChange('submissions', 'update', submissions[subIndex]);
     }
 
     localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(submissions));
@@ -426,18 +671,15 @@ export class StorageService {
     return true;
   }
 
-  // Delete full submission and all its files in Drive
   public deleteSubmission(id: string, currentUserId: string, isAdmin: boolean): boolean {
     const submissions = this.getSubmissions();
     const target = submissions.find(s => s.id === id);
     if (!target) return false;
 
-    // RBAC: members can only delete their own
     if (!isAdmin && target.memberId !== currentUserId) {
       throw new Error('คุณไม่มีสิทธิ์ในการลบข้อมูลของสมาชิกท่านอื่น');
     }
 
-    // Trigger auto-delete on all attached files in Google Drive
     const driveFileIds = target.files.map(f => f.driveFileId).filter(Boolean) as string[];
     if (driveFileIds.length > 0) {
       this.deleteFilesFromGoogleDrive(driveFileIds);
@@ -445,6 +687,7 @@ export class StorageService {
 
     const filtered = submissions.filter(s => s.id !== id);
     localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(filtered));
+    this.broadcastChange('submissions', 'delete', { id });
     this.notify();
     return true;
   }
@@ -483,18 +726,24 @@ export class StorageService {
 
     docs.unshift(newDoc);
     localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(docs));
+    this.broadcastChange('documents', 'insert', newDoc);
     this.notify();
     return newDoc;
   }
 
   public updateDocument(id: string, updates: Partial<DocumentItem>) {
+    let updatedDoc: DocumentItem | null = null;
     const docs = this.getDocuments().map(d => {
       if (d.id === id) {
-        return { ...d, ...updates, updatedAt: new Date().toISOString() };
+        updatedDoc = { ...d, ...updates, updatedAt: new Date().toISOString() };
+        return updatedDoc;
       }
       return d;
     });
     localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(docs));
+    if (updatedDoc) {
+      this.broadcastChange('documents', 'update', updatedDoc);
+    }
     this.notify();
   }
 
@@ -513,6 +762,7 @@ export class StorageService {
 
     const filtered = docs.filter(d => d.id !== id);
     localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(filtered));
+    this.broadcastChange('documents', 'delete', { id });
     this.notify();
     return true;
   }
@@ -520,7 +770,9 @@ export class StorageService {
   public incrementDocumentDownload(docId: string) {
     const docs = this.getDocuments().map(d => {
       if (d.id === docId) {
-        return { ...d, downloadCount: d.downloadCount + 1 };
+        const updated = { ...d, downloadCount: d.downloadCount + 1 };
+        this.broadcastChange('documents', 'update', updated);
+        return updated;
       }
       return d;
     });
@@ -565,24 +817,31 @@ export class StorageService {
 
     announcements.unshift(newAnn);
     localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(announcements));
+    this.broadcastChange('announcements', 'insert', newAnn);
     this.notify();
     return newAnn;
   }
 
   public updateAnnouncement(id: string, updates: Partial<Announcement>) {
+    let updatedAnn: Announcement | null = null;
     const announcements = this.getAnnouncements().map(a => {
       if (a.id === id) {
-        return { ...a, ...updates, updatedAt: new Date().toISOString() };
+        updatedAnn = { ...a, ...updates, updatedAt: new Date().toISOString() };
+        return updatedAnn;
       }
       return a;
     });
     localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(announcements));
+    if (updatedAnn) {
+      this.broadcastChange('announcements', 'update', updatedAnn);
+    }
     this.notify();
   }
 
   public deleteAnnouncement(id: string) {
     const announcements = this.getAnnouncements().filter(a => a.id !== id);
     localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(announcements));
+    this.broadcastChange('announcements', 'delete', { id });
     this.notify();
   }
 
@@ -611,7 +870,6 @@ export class StorageService {
     };
     localStorage.setItem(STORAGE_KEYS.SCHOOL, JSON.stringify(updated));
 
-    // If masterAdminName is changed, also sync with admin user record
     if (updates.masterAdminName) {
       const users = this.getUsers().map(u => {
         if (u.role === 'admin' || u.id === 'user_admin' || u.username.toLowerCase() === 'admin') {
@@ -621,13 +879,13 @@ export class StorageService {
       });
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
 
-      // If current user is admin, update active session
       const currentUser = this.getCurrentUser();
       if (currentUser && (currentUser.role === 'admin' || currentUser.id === 'user_admin')) {
         this.setCurrentUser({ ...currentUser, fullName: updates.masterAdminName });
       }
     }
 
+    this.broadcastChange('school', 'update', updated);
     this.notify();
   }
 
@@ -659,7 +917,6 @@ export class StorageService {
     try {
       const gasUrl = localStorage.getItem('gas_web_app_url');
       if (gasUrl && fileId) {
-        // Send async POST request to Google Apps Script
         await fetch(gasUrl, {
           method: 'POST',
           mode: 'no-cors',
@@ -697,11 +954,9 @@ export class StorageService {
       previewType = 'spreadsheet';
     }
 
-    // If Google Apps Script Web App URL is configured, perform real upload
     if (gasUrl) {
       try {
         onProgress(15);
-        // Convert file to Base64
         const base64Data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
@@ -715,7 +970,6 @@ export class StorageService {
 
         onProgress(45);
 
-        // Upload to Google Apps Script
         const uploadPayload = {
           action: 'uploadFile',
           fileName: file.name,
@@ -765,7 +1019,6 @@ export class StorageService {
       }
     }
 
-    // Default fast simulation with progress
     return new Promise((resolve) => {
       let progress = 0;
       const interval = setInterval(() => {

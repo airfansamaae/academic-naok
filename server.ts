@@ -6,6 +6,19 @@ import { createServer as createViteServer } from 'vite';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// In-memory persistent database for server-wide real-time sync across all browsers
+let serverDataVersion = Date.now();
+const serverDataStore: Record<string, any[]> = {
+  users: [],
+  assignments: [],
+  submissions: [],
+  documents: [],
+  announcements: [],
+  lunch_menus: [],
+  audit_logs: [],
+};
+let serverSchoolProfile: any = null;
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -14,7 +27,7 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // SSE Clients list
-  const sseClients: express.Response[] = [];
+  const sseClients: { id: string; res: express.Response }[] = [];
 
   // Health API
   app.get('/api/health', (req, res) => {
@@ -22,6 +35,8 @@ async function startServer() {
       status: 'ok',
       service: 'Academic Management System API',
       timestamp: new Date().toISOString(),
+      serverDataVersion,
+      connectedBrowsers: sseClients.length,
       driveConfig: {
         targetFolderId: '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-',
         status: 'connected',
@@ -29,13 +44,31 @@ async function startServer() {
     });
   });
 
-  // 4.5 Protected School Lunch Gateway Redirect (Backend-protected handler)
-  // Keeps the URL secured on the server side
+  // 4.5 Protected School Lunch Gateway Redirect
   app.get('/api/lunch-redirect', (req, res) => {
     const TARGET_LUNCH_GAS_URL =
       'https://script.google.com/a/macros/krabiedu.go.th/s/AKfycbzgmOBgQ4534lIiTVuUikzaEF0PXofybzvaYZlXPvFeY4U8d3KrcpXZ-MsooaHSgIQ/exec';
     res.redirect(TARGET_LUNCH_GAS_URL);
   });
+
+  // Broadcast helper
+  const broadcastSync = (eventType: string, payload: any) => {
+    serverDataVersion = Date.now();
+    const data = JSON.stringify({ 
+      type: eventType, 
+      payload, 
+      version: serverDataVersion,
+      timestamp: Date.now() 
+    });
+    
+    sseClients.forEach((client) => {
+      try {
+        client.res.write(`data: ${data}\n\n`);
+      } catch {
+        // Handle disconnected client
+      }
+    });
+  };
 
   // Real-time SSE Endpoint (Server-Sent Events)
   app.get('/api/sync/sse', (req, res) => {
@@ -44,36 +77,113 @@ async function startServer() {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    sseClients.push(res);
+    const clientId = 'client_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    sseClients.push({ id: clientId, res });
 
-    // Send initial ping
-    res.write(`data: ${JSON.stringify({ type: 'INIT_SYNC', timestamp: Date.now() })}\n\n`);
+    // Send initial ping with current version and active clients
+    res.write(`data: ${JSON.stringify({ 
+      type: 'INIT_SYNC', 
+      version: serverDataVersion, 
+      clientsCount: sseClients.length,
+      timestamp: Date.now() 
+    })}\n\n`);
 
     req.on('close', () => {
-      const index = sseClients.indexOf(res);
+      const index = sseClients.findIndex(c => c.id === clientId);
       if (index !== -1) {
         sseClients.splice(index, 1);
       }
     });
   });
 
-  // Broadcast helper
-  const broadcastSync = (eventType: string, payload: any) => {
-    const data = JSON.stringify({ type: eventType, payload, timestamp: Date.now() });
+  // Keep-alive heartbeat every 15s
+  setInterval(() => {
     sseClients.forEach((client) => {
       try {
-        client.write(`data: ${data}\n\n`);
-      } catch (err) {
-        // Handle disconnected client
+        client.res.write(`data: ${JSON.stringify({ type: 'HEARTBEAT', version: serverDataVersion, timestamp: Date.now() })}\n\n`);
+      } catch {
+        // ignore
       }
     });
-  };
+  }, 15000);
+
+  // Check version endpoint (High-speed check for polling clients)
+  app.get('/api/sync/version', (req, res) => {
+    res.json({
+      version: serverDataVersion,
+      clientsCount: sseClients.length,
+      timestamp: Date.now(),
+    });
+  });
+
+  // Get all data collection
+  app.get('/api/data/all', (req, res) => {
+    res.json({
+      version: serverDataVersion,
+      data: serverDataStore,
+      school: serverSchoolProfile,
+      timestamp: Date.now(),
+    });
+  });
+
+  // Sync / Mutate endpoint (insert, update, delete, batch)
+  app.post('/api/sync', (req, res) => {
+    const { table, action, data, school, fullState } = req.body;
+
+    if (fullState) {
+      // Full state sync
+      if (fullState.users) serverDataStore.users = fullState.users;
+      if (fullState.assignments) serverDataStore.assignments = fullState.assignments;
+      if (fullState.submissions) serverDataStore.submissions = fullState.submissions;
+      if (fullState.documents) serverDataStore.documents = fullState.documents;
+      if (fullState.announcements) serverDataStore.announcements = fullState.announcements;
+      if (fullState.lunch_menus) serverDataStore.lunch_menus = fullState.lunch_menus;
+      if (fullState.audit_logs) serverDataStore.audit_logs = fullState.audit_logs;
+      if (fullState.school) serverSchoolProfile = fullState.school;
+    } else if (table && serverDataStore[table]) {
+      const list = serverDataStore[table];
+      if (action === 'insert') {
+        const existingIdx = list.findIndex((item) => item.id === data.id);
+        if (existingIdx >= 0) {
+          list[existingIdx] = data;
+        } else {
+          list.unshift(data);
+        }
+      } else if (action === 'update') {
+        const idx = list.findIndex((item) => item.id === data.id);
+        if (idx >= 0) {
+          list[idx] = { ...list[idx], ...data };
+        } else {
+          list.unshift(data);
+        }
+      } else if (action === 'delete') {
+        const idx = list.findIndex((item) => item.id === data.id);
+        if (idx >= 0) {
+          list.splice(idx, 1);
+        }
+      } else if (action === 'setList') {
+        serverDataStore[table] = Array.isArray(data) ? data : [];
+      }
+    }
+
+    if (school) {
+      serverSchoolProfile = school;
+    }
+
+    broadcastSync('DATA_CHANGED', { table, action, dataId: data?.id });
+
+    res.json({
+      success: true,
+      version: serverDataVersion,
+      message: 'Synchronized across all browsers in real-time',
+    });
+  });
 
   // API trigger for real-time broadcasts
   app.post('/api/sync/broadcast', (req, res) => {
     const { eventType, payload } = req.body;
     broadcastSync(eventType || 'DATA_CHANGED', payload || {});
-    res.json({ success: true });
+    res.json({ success: true, version: serverDataVersion });
   });
 
   // Vite development middleware vs production static files

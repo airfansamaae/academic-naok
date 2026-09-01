@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FolderOpen, 
   Settings as SettingsIcon, 
@@ -6,9 +6,14 @@ import {
   UserCheck, 
   School,
   Database,
-  Code2
+  Code2,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  CheckCircle2
 } from 'lucide-react';
 import { User, SchoolProfile, ActiveTab } from '../types';
+import { storage, SyncStatusInfo } from '../services/storageService';
 
 interface TopHeaderProps {
   currentUser: User | null;
@@ -34,6 +39,24 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenAuth,
   onOpenLoginModal
 }) => {
+  const [syncInfo, setSyncInfo] = useState<SyncStatusInfo>(storage.getSyncStatus());
+  const [manualSyncing, setManualSyncing] = useState(false);
+
+  useEffect(() => {
+    const unsub = storage.subscribeSync((info) => {
+      setSyncInfo(info);
+    });
+    return unsub;
+  }, []);
+
+  const handleManualSync = async () => {
+    setManualSyncing(true);
+    await storage.pullLatestFromCloud(false);
+    setTimeout(() => {
+      setManualSyncing(false);
+    }, 600);
+  };
+
   const handleSelectTab = onSelectTab || onNavigate || (() => {});
   const handleOpenAuth = onOpenAuth || onOpenLoginModal || (() => {});
   const driveFolderId = school?.primaryDriveFolderId || '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
@@ -74,6 +97,19 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 
           {/* Right Action Tools */}
           <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* Live Real-time Sync Indicator */}
+            <button
+              id="header-realtime-sync-btn"
+              onClick={handleManualSync}
+              title="ซิงค์ข้อมูล Real-time ทุกเบราว์เซอร์อัตโนมัติ (คลิกเพื่อดึงข้อมูลล่าสุด)"
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border transition-all cursor-pointer bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+            >
+              <RefreshCw className={`w-3 h-3 text-emerald-600 ${syncInfo.status === 'syncing' || manualSyncing ? 'animate-spin' : ''}`} />
+              <span className="text-[11px] font-semibold">
+                {syncInfo.status === 'syncing' || manualSyncing ? 'กำลังซิงค์...' : 'Real-time Sync สด'}
+              </span>
+            </button>
+
             {/* Active User Pill */}
             {currentUser ? (
               <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
@@ -136,3 +172,4 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
     </header>
   );
 };
+
