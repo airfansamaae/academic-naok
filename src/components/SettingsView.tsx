@@ -1242,6 +1242,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
             <div className="relative rounded-2xl bg-slate-950 text-emerald-400 p-4 border border-slate-800 shadow-inner max-h-[300px] overflow-y-auto font-mono text-[11px] leading-relaxed">
               <pre className="whitespace-pre-wrap">{`-- academic_schema.sql (Cloudflare D1 Table Definitions)
+CREATE TABLE IF NOT EXISTS app_state (
+    key TEXT PRIMARY KEY,
+    json_data TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

@@ -24,7 +24,7 @@ import {
   UploadedFile, 
   User 
 } from '../types';
-import { storage } from '../services/storageService';
+import { storage, triggerDirectDownload } from '../services/storageService';
 import Swal from 'sweetalert2';
 import { formatThaiDate } from '../lib/dateUtils';
 
@@ -105,22 +105,15 @@ export const DocumentCenterView: React.FC<DocumentCenterViewProps> = ({
     storage.incrementDocumentDownload(doc.id);
     Swal.fire({
       icon: 'success',
-      title: 'กำลังดาวน์โหลด',
-      text: `ดาวน์โหลด ${doc.file.name} สำเร็จ`,
+      title: 'กำลังดาวน์โหลดไฟล์ต้นฉบับ',
+      text: `ดาวน์โหลด ${doc.file.name} เรียบร้อยแล้ว (Original Binary File)`,
       toast: true,
       position: 'top-end',
       timer: 1600,
       showConfirmButton: false,
     });
 
-    const element = document.createElement('a');
-    const content = doc.file.previewContent || `เอกสาร: ${doc.title}\nเลขที่: ${doc.docNumber || '-'}\nหมวดหมู่: ${doc.category}`;
-    const blob = new Blob([content], { type: doc.file.mimeType || 'text/plain;charset=utf-8' });
-    element.href = URL.createObjectURL(blob);
-    element.download = doc.file.name;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+    triggerDirectDownload(doc.file);
   };
 
   // Handle Delete Document

@@ -2,6 +2,13 @@
 -- คำสั่งสร้างตารางทั้งหมดสำหรับ Cloudflare D1
 -- สามารถ Copy ไปรันในแท็บ D1 Console ได้ทันที
 
+CREATE TABLE IF NOT EXISTS app_state (
+    key TEXT PRIMARY KEY,
+    json_data TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

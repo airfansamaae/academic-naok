@@ -27,6 +27,7 @@ export interface UploadedFile {
   viewUrl: string;
   previewType: 'pdf' | 'image' | 'doc' | 'spreadsheet' | 'presentation' | 'other';
   previewContent?: string; // Embedded base64 or mock preview content
+  fileDataUrl?: string; // Real binary data URL for 100% authentic original file download
   uploadedAt: string;
 }
 

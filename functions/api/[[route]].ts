@@ -40,13 +40,31 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Ensure app_state table exists in D1
+  const ensureAppStateTable = async () => {
+    if (!env.DB) return;
+    try {
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS app_state (
+          key TEXT PRIMARY KEY,
+          json_data TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `).run();
+    } catch {
+      // Table may already exist
+    }
+  };
+
   try {
     // Health / Status check
     if (path === 'health' || path === '') {
       return new Response(
         JSON.stringify({
           status: 'ok',
-          platform: 'Cloudflare Pages & D1',
+          platform: 'Cloudflare Pages & D1 Real-time Hub',
+          d1Connected: !!env.DB,
           timestamp: new Date().toISOString(),
         }),
         { headers: corsHeaders }
@@ -55,10 +73,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // Version endpoint for real-time polling check
     if (path === 'sync/version') {
-      let version = Date.now();
+      let currentVersion = 1;
+      if (env.DB) {
+        await ensureAppStateTable();
+        try {
+          const row: any = await env.DB.prepare(
+            `SELECT version FROM app_state WHERE key = 'meta_version'`
+          ).all();
+          if (row?.results?.[0]?.version) {
+            currentVersion = row.results[0].version;
+          }
+        } catch {
+          // ignore
+        }
+      }
       return new Response(
         JSON.stringify({
-          version,
+          version: currentVersion,
           timestamp: Date.now(),
         }),
         { headers: corsHeaders }
@@ -70,100 +101,156 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (!env.DB) {
         return new Response(
           JSON.stringify({
-            version: Date.now(),
+            version: 1,
             data: {},
-            message: 'D1 not bound yet. Using client-side storage.',
+            message: 'D1 binding DB not active yet. Using client-side storage.',
           }),
           { headers: corsHeaders }
         );
       }
 
-      const tables = ['users', 'assignments', 'submissions', 'documents', 'announcements', 'lunch_menus', 'audit_logs'];
-      const dataStore: Record<string, any[]> = {};
+      await ensureAppStateTable();
 
-      for (const t of tables) {
-        try {
-          const { results } = await env.DB.prepare(`SELECT * FROM ${t}`).all();
-          dataStore[t] = results || [];
-        } catch {
-          dataStore[t] = [];
+      const dataStore: Record<string, any[]> = {
+        users: [],
+        assignments: [],
+        submissions: [],
+        documents: [],
+        announcements: [],
+        lunch_menus: [],
+        audit_logs: [],
+      };
+      let schoolProfile: any = null;
+      let currentVersion = 1;
+
+      try {
+        const { results } = await env.DB.prepare(`SELECT * FROM app_state`).all();
+        if (results && results.length > 0) {
+          for (const row of results as any[]) {
+            if (row.key === 'meta_version') {
+              currentVersion = row.version || currentVersion;
+            } else if (row.key === 'school') {
+              try {
+                schoolProfile = JSON.parse(row.json_data);
+              } catch {
+                schoolProfile = null;
+              }
+            } else if (dataStore[row.key] !== undefined) {
+              try {
+                dataStore[row.key] = JSON.parse(row.json_data) || [];
+              } catch {
+                dataStore[row.key] = [];
+              }
+            }
+          }
         }
+      } catch (err: any) {
+        console.warn('Failed reading from app_state:', err);
       }
 
       return new Response(
         JSON.stringify({
-          version: Date.now(),
+          version: currentVersion,
           data: dataStore,
+          school: schoolProfile,
           timestamp: Date.now(),
         }),
         { headers: corsHeaders }
       );
     }
 
-    // Fetch single table
-    if (method === 'GET') {
-      const table = path.split('/')[0];
-      const validTables = ['users', 'assignments', 'submissions', 'documents', 'announcements', 'lunch_menus', 'audit_logs'];
-      if (validTables.includes(table) && env.DB) {
-        const { results } = await env.DB.prepare(`SELECT * FROM ${table}`).all();
-        return new Response(JSON.stringify(results || []), { headers: corsHeaders });
-      }
-    }
-
     // Sync / Mutate endpoint
     if (method === 'POST' && (path === 'sync' || path === 'sync/broadcast')) {
       const body = (await request.json()) as any;
-      const { table, action, data, fullState } = body;
+      const { table, action, data, school, fullState } = body;
+      const newVersion = Date.now();
+      const nowIso = new Date().toISOString();
 
       if (!env.DB) {
         return new Response(
           JSON.stringify({
             success: true,
-            version: Date.now(),
-            message: 'Synced locally (D1 pending)',
+            version: newVersion,
+            message: 'Synced locally',
           }),
           { headers: corsHeaders }
         );
       }
 
+      await ensureAppStateTable();
+
       if (fullState) {
-        // Batch sync tables
+        // Full state migration / push
         for (const [tblName, items] of Object.entries(fullState)) {
-          if (Array.isArray(items) && items.length > 0) {
-            for (const item of items) {
-              const keys = Object.keys(item);
-              const placeholders = keys.map(() => '?').join(', ');
-              const values = Object.values(item).map((v) =>
-                typeof v === 'object' ? JSON.stringify(v) : v
-              );
-              try {
-                const sql = `INSERT OR REPLACE INTO ${tblName} (${keys.join(', ')}) VALUES (${placeholders})`;
-                await env.DB.prepare(sql).bind(...values).run();
-              } catch {
-                // ignore
-              }
-            }
+          if (tblName === 'school') {
+            await env.DB.prepare(`
+              INSERT OR REPLACE INTO app_state (key, json_data, version, updated_at)
+              VALUES ('school', ?, ?, ?)
+            `).bind(JSON.stringify(items), newVersion, nowIso).run();
+          } else if (Array.isArray(items)) {
+            await env.DB.prepare(`
+              INSERT OR REPLACE INTO app_state (key, json_data, version, updated_at)
+              VALUES (?, ?, ?, ?)
+            `).bind(tblName, JSON.stringify(items), newVersion, nowIso).run();
           }
         }
-      } else if (table && data) {
-        if (action === 'insert' || action === 'update') {
-          const keys = Object.keys(data);
-          const placeholders = keys.map(() => '?').join(', ');
-          const values = Object.values(data).map((v) =>
-            typeof v === 'object' ? JSON.stringify(v) : v
-          );
+      } else if (table) {
+        // Incremental mutation
+        if (table === 'school') {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO app_state (key, json_data, version, updated_at)
+            VALUES ('school', ?, ?, ?)
+          `).bind(JSON.stringify(data || school), newVersion, nowIso).run();
+        } else {
+          // Read current list
+          let currentList: any[] = [];
+          try {
+            const row: any = await env.DB.prepare(`SELECT json_data FROM app_state WHERE key = ?`).bind(table).all();
+            if (row?.results?.[0]?.json_data) {
+              currentList = JSON.parse(row.results[0].json_data) || [];
+            }
+          } catch {
+            currentList = [];
+          }
 
-          const sql = `INSERT OR REPLACE INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`;
-          await env.DB.prepare(sql).bind(...values).run();
-        } else if (action === 'delete' && data.id) {
-          await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(data.id).run();
+          if (action === 'setList' && Array.isArray(data)) {
+            currentList = data;
+          } else if (action === 'insert') {
+            const idx = currentList.findIndex((item) => item.id === data.id);
+            if (idx >= 0) {
+              currentList[idx] = data;
+            } else {
+              currentList.unshift(data);
+            }
+          } else if (action === 'update') {
+            const idx = currentList.findIndex((item) => item.id === data.id);
+            if (idx >= 0) {
+              currentList[idx] = { ...currentList[idx], ...data };
+            } else {
+              currentList.unshift(data);
+            }
+          } else if (action === 'delete') {
+            currentList = currentList.filter((item) => item.id !== data.id);
+          }
+
+          // Save updated list back
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO app_state (key, json_data, version, updated_at)
+            VALUES (?, ?, ?, ?)
+          `).bind(table, JSON.stringify(currentList), newVersion, nowIso).run();
         }
       }
+
+      // Update meta_version
+      await env.DB.prepare(`
+        INSERT OR REPLACE INTO app_state (key, json_data, version, updated_at)
+        VALUES ('meta_version', '1', ?, ?)
+      `).bind(newVersion, nowIso).run();
 
       return new Response(
         JSON.stringify({
           success: true,
-          version: Date.now(),
+          version: newVersion,
           message: 'Saved & synced with Cloudflare D1',
         }),
         { headers: corsHeaders }

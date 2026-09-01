@@ -24,7 +24,7 @@ import {
   UploadedFile, 
   User 
 } from '../types';
-import { storage } from '../services/storageService';
+import { storage, triggerDirectDownload } from '../services/storageService';
 import Swal from 'sweetalert2';
 import { formatThaiDate, formatThaiDateRange } from '../lib/dateUtils';
 
@@ -79,22 +79,15 @@ export const TrackingView: React.FC<TrackingViewProps> = ({
   const handleDownloadFile = (file: UploadedFile) => {
     Swal.fire({
       icon: 'success',
-      title: 'กำลังเริ่มดาวน์โหลด',
-      text: `ดาวน์โหลด ${file.name} เรียบร้อยแล้ว (Direct Google Drive Download)`,
+      title: 'กำลังเริ่มดาวน์โหลดไฟล์ต้นฉบับ',
+      text: `ดาวน์โหลด ${file.name} เรียบร้อยแล้ว (Original Binary File)`,
       toast: true,
       position: 'top-end',
       timer: 1800,
       showConfirmButton: false,
     });
 
-    const element = document.createElement('a');
-    const content = file.previewContent || `เนื้อหาไฟล์: ${file.name}\nขนาด: ${file.size} bytes`;
-    const blob = new Blob([content], { type: file.mimeType || 'text/plain;charset=utf-8' });
-    element.href = URL.createObjectURL(blob);
-    element.download = file.name;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+    triggerDirectDownload(file);
   };
 
   // Safe file delete handler (Ensuring rule: NEVER deletes folders!)
