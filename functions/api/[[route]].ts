@@ -231,6 +231,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             }
           } else if (action === 'delete') {
             currentList = currentList.filter((item) => item.id !== data.id);
+            // Also attempt direct SQL delete on table if individual relational table exists in D1
+            try {
+              if (table && data && data.id) {
+                await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(data.id).run();
+                if (table === 'assignments') {
+                  // Cascade delete submissions related to this assignment
+                  await env.DB.prepare(`DELETE FROM submissions WHERE assignmentId = ?`).bind(data.id).run();
+                }
+              }
+            } catch {
+              // Ignore if individual relational table does not exist
+            }
           }
 
           // Save updated list back

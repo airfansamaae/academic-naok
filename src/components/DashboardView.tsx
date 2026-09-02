@@ -80,11 +80,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     announcements: Announcement[];
   } | null>(null);
 
-  // Dynamic 15-Day Lookahead for Prominent Notice Banner & Upcoming Schedule (แสดงเฉพาะปัจจุบัน และ 15 วันล่วงหน้า หากเลยวันแล้วเอาออกอัตโนมัติ)
+  // Dynamic Lookahead for Notice Banner (15 Days) & Upcoming Schedule (30 Days)
+  // Base date calculation (handles current calendar date)
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const actualTodayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  // Use today's actual date, or academic reference date '2026-08-31'
   const todayStr = '2026-08-31';
   const [todayYear, todayMonth, todayDay] = todayStr.split('-').map(Number);
+  
+  // 15-Day Lookahead for Prominent Notice Banner (แสดงเฉพาะปัจจุบัน และ 15 วันล่วงหน้า หากเลยวันแล้วเอาออกอัตโนมัติ)
   const lookahead15Date = new Date(todayYear, todayMonth - 1, todayDay + 15);
-  const lookahead15Str = `${lookahead15Date.getFullYear()}-${(lookahead15Date.getMonth() + 1).toString().padStart(2, '0')}-${lookahead15Date.getDate().toString().padStart(2, '0')}`;
+  const lookahead15Str = `${lookahead15Date.getFullYear()}-${pad(lookahead15Date.getMonth() + 1)}-${pad(lookahead15Date.getDate())}`;
+
+  // 30-Day Lookahead for Right Column Upcoming Schedule (แสดงเฉพาะปัจจุบัน และ 30 วันล่วงหน้า)
+  const lookahead30Date = new Date(todayYear, todayMonth - 1, todayDay + 30);
+  const lookahead30Str = `${lookahead30Date.getFullYear()}-${pad(lookahead30Date.getMonth() + 1)}-${pad(lookahead30Date.getDate())}`;
 
   interface BannerNotice {
     id: string;
@@ -99,7 +110,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const bannerNotices: BannerNotice[] = [];
 
-  // Filter announcements: only show if not expired (end >= todayStr) and starts within 15 days (start <= lookahead15Str)
+  // Filter announcements for Notice Banner: only show if not expired (end >= todayStr) and starts within 15 days (start <= lookahead15Str)
   announcements.forEach((ann) => {
     const start = ann.dateStart || ann.date || todayStr;
     const end = ann.dateEnd || ann.date || start;
@@ -116,7 +127,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   });
 
-  // Filter assignment deadlines: only show if deadline has not passed (end >= todayStr) and starts within 15 days
+  // Filter assignment deadlines for Notice Banner: only show if deadline has not passed (end >= todayStr) and starts within 15 days
   assignments.forEach((a) => {
     const start = a.dueDateStart || a.dueDateEnd;
     const end = a.dueDateEnd;
@@ -282,7 +293,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   });
 
-  // Calculate 15-Day Lookahead Items (From today: 2026-08-31 up to 15 days ahead, sorted by closest date first)
+  // Calculate 30-Day Lookahead Items (From today: 2026-08-31 up to 30 days ahead, sorted by closest date first)
   interface LookaheadItem {
     id: string;
     type: 'assignment' | 'announcement';
@@ -296,11 +307,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const lookaheadList: LookaheadItem[] = [];
 
-  // Assignments in 15-day window (must not be expired: dueDateEnd >= todayStr, and starts within 15 days)
+  // Assignments in 30-day window (must not be expired: dueDateEnd >= todayStr, and starts within 30 days)
   assignments.forEach((a) => {
     const start = a.dueDateStart || a.dueDateEnd;
     const end = a.dueDateEnd;
-    if (end && end >= todayStr && start && start <= lookahead15Str) {
+    if (end && end >= todayStr && start && start <= lookahead30Str) {
       lookaheadList.push({
         id: `assign-${a.id}`,
         type: 'assignment',
@@ -313,11 +324,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   });
 
-  // Announcements in 15-day window (must not be expired: end >= todayStr, and starts within 15 days)
+  // Announcements in 30-day window (must not be expired: end >= todayStr, and starts within 30 days)
   announcements.forEach((ann) => {
     const start = ann.dateStart || ann.date || todayStr;
     const end = ann.dateEnd || ann.date || start;
-    if (end >= todayStr && start <= lookahead15Str) {
+    if (end >= todayStr && start <= lookahead30Str) {
       lookaheadList.push({
         id: `ann-${ann.id}`,
         type: 'announcement',
@@ -669,7 +680,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* RIGHT COLUMN (4 Cols): 15-DAY UPCOMING SCHEDULE & ANNOUNCEMENTS (ประกาศแจ้งเตือน 15 วันล่วงหน้า) */}
+        {/* RIGHT COLUMN (4 Cols): 30-DAY UPCOMING SCHEDULE & ANNOUNCEMENTS (ประกาศแจ้งเตือน 30 วันล่วงหน้า) */}
         <div className="lg:col-span-4 bg-white rounded-3xl border border-purple-100 p-5 sm:p-6 shadow-xs flex flex-col space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center space-x-2">
@@ -677,7 +688,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <CalendarDays className="w-4 h-4" />
               </div>
               <h3 className="text-sm font-bold text-slate-900">
-                ประกาศ & กำหนดส่ง 15 วันล่วงหน้า
+                ประกาศ & กำหนดส่ง 30 วันล่วงหน้า
               </h3>
             </div>
             <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
@@ -686,14 +697,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <p className="text-xs text-slate-500">
-            กำหนดส่งงานและแจ้งเพื่อทราบในระยะ 15 วันนี้ (แสดงเฉพาะปัจจุบันและ 15 วันล่วงหน้า)
+            กำหนดส่งงานและแจ้งเพื่อทราบในระยะ 30 วันนี้ (แสดงเฉพาะปัจจุบันและ 30 วันล่วงหน้า)
           </p>
 
           {/* List of Uniformly Sized Cards */}
           <div className="space-y-3 flex-1 overflow-y-auto max-h-[540px] pr-1">
             {lookaheadList.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-2xl">
-                ไม่มีกำหนดส่งงานหรือประกาศใหม่ในระยะ 15 วันนี้
+                ไม่มีกำหนดส่งงานหรือประกาศใหม่ในระยะ 30 วันนี้
               </div>
             ) : (
               lookaheadList.map((item) => {

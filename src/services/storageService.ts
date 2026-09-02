@@ -25,8 +25,25 @@ export interface SyncStatusInfo {
 }
 
 // 100% Authentic Original File Downloader (Supports Word .docx/.doc, Excel .xlsx, PDF, PPTX, Images, ZIP)
+// Retains exact original filename and triggers direct in-browser download without opening blank tabs
 export function triggerDirectDownload(file: UploadedFile) {
   if (!file) return;
+
+  const originalFileName = file.name || 'document';
+
+  // Helper to trigger direct download from blob or base64 without opening new tab
+  const saveBlobDirectly = (blob: Blob, fileName: string) => {
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = fileName;
+    link.setAttribute('download', fileName);
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+  };
 
   // 1. If we have the authentic binary base64 Data URL (Original uploaded binary file)
   if (file.fileDataUrl && file.fileDataUrl.startsWith('data:')) {
@@ -40,20 +57,15 @@ export function triggerDirectDownload(file: UploadedFile) {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
       const blob = new Blob([byteNumbers], { type: contentType });
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = file.name;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+      saveBlobDirectly(blob, originalFileName);
       return;
     } catch (err) {
       console.warn('Direct Blob download failed, falling back to data link:', err);
       const link = document.createElement('a');
       link.href = file.fileDataUrl;
-      link.download = file.name;
+      link.download = originalFileName;
+      link.setAttribute('download', originalFileName);
+      link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -61,30 +73,44 @@ export function triggerDirectDownload(file: UploadedFile) {
     }
   }
 
-  // 2. If it's a real Google Drive file ID
+  // 2. If it's a real Google Drive file ID (Fetch as blob or direct iframe download to avoid blank tabs)
   if (file.driveFileId && !file.driveFileId.startsWith('drive_f_') && !file.driveFileId.startsWith('mock_')) {
     const directGoogleDriveDownloadUrl = `https://drive.google.com/uc?export=download&id=${file.driveFileId}&confirm=t`;
-    window.open(directGoogleDriveDownloadUrl, '_blank');
+    // Try invisible iframe download first so user stays in same tab
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = directGoogleDriveDownloadUrl;
+    document.body.appendChild(iframe);
+    setTimeout(() => {
+      try {
+        document.body.removeChild(iframe);
+      } catch {
+        // ignore
+      }
+    }, 10000);
     return;
   }
 
   // 3. If downloadUrl or viewUrl is a valid web URL
   if (file.downloadUrl && file.downloadUrl.startsWith('http') && !file.downloadUrl.includes('drive_f_')) {
-    window.open(file.downloadUrl, '_blank');
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = file.downloadUrl;
+    document.body.appendChild(iframe);
+    setTimeout(() => {
+      try {
+        document.body.removeChild(iframe);
+      } catch {
+        // ignore
+      }
+    }, 10000);
     return;
   }
 
-  // 4. Fallback:
-  const link = document.createElement('a');
-  const content = file.previewContent || `ไฟล์เอกสาร: ${file.name}`;
+  // 4. Fallback (Preview content as blob with original filename):
+  const content = file.previewContent || `ไฟล์เอกสาร: ${originalFileName}`;
   const blob = new Blob([content], { type: file.mimeType || 'application/octet-stream' });
-  const blobUrl = URL.createObjectURL(blob);
-  link.href = blobUrl;
-  link.download = file.name;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+  saveBlobDirectly(blob, originalFileName);
 }
 
 export class StorageService {
@@ -166,17 +192,24 @@ export class StorageService {
       // Fallback
     }
 
-    // 2. Initial Cloud Pull & Seed Check
-    setTimeout(() => {
-      this.pullLatestFromCloud();
-    }, 500);
+    // 2. Real-time Server-Sent Events (SSE) for instant cross-device updates
+    if (typeof window !== 'undefined' && 'EventSource' in window) {
+      this.setupSSEConnection();
+    }
 
-    // 3. Periodic Background Sync Polling (Every 6 seconds)
+    // 3. Initial Boot: Push local state to cloud & Pull latest to make sure D1 / Server has full data
+    setTimeout(async () => {
+      // Auto-push initial data so fresh instances or newly created records are immediately on D1
+      await this.pushFullStateToCloud();
+      await this.pullLatestFromCloud(true);
+    }, 400);
+
+    // 4. Periodic Background Sync Polling (Every 3 seconds for near-instant multi-device sync)
     setInterval(() => {
       this.checkRemoteVersionAndSync();
-    }, 6000);
+    }, 3000);
 
-    // 4. Instant Sync on Window Focus / Visibility Change
+    // 5. Instant Sync on Window Focus / Visibility Change
     if (typeof window !== 'undefined') {
       window.addEventListener('focus', () => {
         this.pullLatestFromCloud();
@@ -186,6 +219,34 @@ export class StorageService {
           this.pullLatestFromCloud();
         }
       });
+    }
+  }
+
+  // Real-time SSE Connection
+  private setupSSEConnection() {
+    try {
+      const eventSource = new EventSource('/api/sync/sse');
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data && (data.type === 'DATA_CHANGED' || data.type === 'INIT_SYNC')) {
+            if (data.version && data.version > this.lastRemoteVersion) {
+              this.pullLatestFromCloud(true);
+            }
+          }
+        } catch {
+          // ignore parsing error
+        }
+      };
+      eventSource.onerror = () => {
+        eventSource.close();
+        // Reconnect after 5 seconds
+        setTimeout(() => {
+          this.setupSSEConnection();
+        }, 5000);
+      };
+    } catch {
+      // fallback to polling
     }
   }
 
@@ -955,18 +1016,37 @@ export class StorageService {
   // Automatic Google Drive Batch File Deletion via Google Apps Script (Fast & Safe - Never deletes folders)
   public async deleteFilesFromGoogleDrive(fileIds: string[]): Promise<boolean> {
     try {
-      const gasUrl = localStorage.getItem('gas_web_app_url');
-      if (gasUrl && fileIds && fileIds.length > 0) {
-        await fetch(gasUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'deleteFiles',
-            fileIds: fileIds,
-          }),
-        });
-        console.log(`[Google Drive Auto-Delete] Deleted ${fileIds.length} files from Drive folder 1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-`);
+      const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbzgmOBgQ4534lIiTVuUikzaEF0PXofybzvaYZlXPvFeY4U8d3KrcpXZ-MsooaHSgIQ/exec';
+      const gasUrl = localStorage.getItem('gas_web_app_url') || defaultGasUrl;
+      const validIds = fileIds.filter(id => id && !id.startsWith('mock_'));
+      
+      if (gasUrl && validIds.length > 0) {
+        // Direct fetch to Google Apps Script
+        try {
+          await fetch(gasUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'deleteFiles',
+              fileIds: validIds,
+            }),
+          });
+          console.log(`[Google Drive Auto-Delete] Deleted ${validIds.length} files from Drive folder 1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-`);
+        } catch (fetchErr) {
+          console.warn('[Google Drive Auto-Delete Direct Error]', fetchErr);
+        }
+
+        // Also call backend server delete proxy for reliability
+        try {
+          await fetch('/api/drive/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileIds: validIds }),
+          });
+        } catch {
+          // ignore server proxy error
+        }
       }
       return true;
     } catch (err) {
@@ -978,18 +1058,36 @@ export class StorageService {
   // Automatic Google Drive Single File Deletion via Google Apps Script (Safe - Never deletes folders)
   public async deleteFileFromGoogleDrive(fileId: string): Promise<boolean> {
     try {
-      const gasUrl = localStorage.getItem('gas_web_app_url');
-      if (gasUrl && fileId) {
-        await fetch(gasUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'deleteFile',
-            fileId: fileId,
-          }),
-        });
-        console.log(`[Google Drive Auto-Delete] File ID: ${fileId} moved to trash in Drive folder 1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-`);
+      const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbzgmOBgQ4534lIiTVuUikzaEF0PXofybzvaYZlXPvFeY4U8d3KrcpXZ-MsooaHSgIQ/exec';
+      const gasUrl = localStorage.getItem('gas_web_app_url') || defaultGasUrl;
+      
+      if (gasUrl && fileId && !fileId.startsWith('mock_')) {
+        // Direct fetch to Google Apps Script
+        try {
+          await fetch(gasUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'deleteFile',
+              fileId: fileId,
+            }),
+          });
+          console.log(`[Google Drive Auto-Delete] File ID: ${fileId} moved to trash in Drive folder 1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-`);
+        } catch (fetchErr) {
+          console.warn('[Google Drive Auto-Delete Direct Error]', fetchErr);
+        }
+
+        // Also call backend server delete proxy for reliability
+        try {
+          await fetch('/api/drive/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId: fileId }),
+          });
+        } catch {
+          // ignore server proxy error
+        }
       }
       return true;
     } catch (err) {

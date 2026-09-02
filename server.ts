@@ -51,6 +51,31 @@ async function startServer() {
     res.redirect(TARGET_LUNCH_GAS_URL);
   });
 
+  // Google Drive File Deletion Relay (Backend safe proxy)
+  app.post('/api/drive/delete', async (req, res) => {
+    const { fileId, fileIds } = req.body;
+    const GAS_URL = 'https://script.google.com/macros/s/AKfycbzgmOBgQ4534lIiTVuUikzaEF0PXofybzvaYZlXPvFeY4U8d3KrcpXZ-MsooaHSgIQ/exec';
+    
+    try {
+      if (fileIds && Array.isArray(fileIds) && fileIds.length > 0) {
+        fetch(GAS_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'deleteFiles', fileIds }),
+        }).catch(() => {});
+      } else if (fileId) {
+        fetch(GAS_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'deleteFile', fileId }),
+        }).catch(() => {});
+      }
+      res.json({ success: true, message: 'Google Drive deletion queued safely' });
+    } catch {
+      res.json({ success: true, message: 'Ignored' });
+    }
+  });
+
   // Broadcast helper
   const broadcastSync = (eventType: string, payload: any) => {
     serverDataVersion = Date.now();
