@@ -709,7 +709,18 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                           /* MEMBER CONTROLS: View / Edit / Delete own submission */
                           <>
                             {isMemberSubmitted ? (
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {mySubmission.files && mySubmission.files.length > 0 && (
+                                  <button
+                                    onClick={() => onOpenFilePreview(mySubmission.files[0], assignment.title, currentUser?.fullName)}
+                                    title="ดูตัวอย่างไฟล์งานที่ส่ง"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition-colors cursor-pointer shadow-2xs"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-purple-600" />
+                                    <span>ดูตัวอย่างไฟล์ ({mySubmission.files.length})</span>
+                                  </button>
+                                )}
+
                                 <button
                                   onClick={() => setPeerSubmissionsModalAssignment(assignment)}
                                   title="ดูสถานะการส่งและไฟล์งาน"
@@ -1627,21 +1638,27 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
 
                     <div>
                       {hasSubmitted ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap justify-end">
                           <span className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-100 text-emerald-800 flex items-center gap-1">
                             <Check className="w-3 h-3" />
                             <span>ส่งแล้ว ({sub.submissionDate})</span>
                           </span>
-                          {sub.files.length > 0 && (
-                            <button
-                              onClick={() => {
-                                onOpenFilePreview(sub.files[0], memberStatusModalAssignment.title, member.fullName);
-                              }}
-                              className="p-1 text-purple-600 hover:bg-purple-100 rounded-md cursor-pointer"
-                              title="ดูไฟล์"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
+                          {sub.files && sub.files.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {sub.files.map((f, fIdx) => (
+                                <button
+                                  key={f.id || fIdx}
+                                  onClick={() => {
+                                    onOpenFilePreview(f, memberStatusModalAssignment.title, member.fullName);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 cursor-pointer"
+                                  title={`ดูตัวอย่างไฟล์: ${f.name}`}
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span className="max-w-[100px] truncate">{f.name}</span>
+                                </button>
+                              ))}
+                            </div>
                           )}
                         </div>
                       ) : (
@@ -1726,20 +1743,26 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                         </div>
                       </div>
 
-                      {peerSub.files.length > 0 && (
-                        <button
-                          onClick={() => {
-                            onOpenFilePreview(peerSub.files[0], peerSub.assignmentTitle, peerSub.memberName);
-                          }}
-                          className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-xl transition-colors cursor-pointer ${
-                            isMine
-                              ? 'text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300'
-                              : 'text-purple-700 bg-purple-100 hover:bg-purple-200 border border-purple-200'
-                          }`}
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>ดูงาน ({peerSub.files.length})</span>
-                        </button>
+                      {peerSub.files && peerSub.files.length > 0 && (
+                        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                          {peerSub.files.map((f, fIdx) => (
+                            <button
+                              key={f.id || fIdx}
+                              onClick={() => {
+                                onOpenFilePreview(f, peerSub.assignmentTitle, peerSub.memberName);
+                              }}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl transition-colors cursor-pointer ${
+                                isMine
+                                  ? 'text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300'
+                                  : 'text-purple-700 bg-purple-100 hover:bg-purple-200 border border-purple-200'
+                              }`}
+                              title={`ดูตัวอย่างไฟล์: ${f.name}`}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span className="max-w-[120px] truncate">{f.name}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
                   );
