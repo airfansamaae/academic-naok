@@ -10,7 +10,8 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
-  CheckCircle2
+  CheckCircle2,
+  GraduationCap
 } from 'lucide-react';
 import { User, SchoolProfile, ActiveTab } from '../types';
 import { storage, SyncStatusInfo } from '../services/storageService';
@@ -122,7 +123,18 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                   </span>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-purple-100 border border-purple-200 flex items-center justify-center text-purple-700 font-medium text-xs overflow-hidden">
-                  {currentUser.avatarUrl ? (
+                  {currentUser.role === 'admin' ? (
+                    school?.logoUrl ? (
+                      <img 
+                        src={school.logoUrl} 
+                        alt="School Logo (Admin)" 
+                        className="w-full h-full object-contain p-0.5"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <GraduationCap className="w-4 h-4 text-purple-700" />
+                    )
+                  ) : currentUser.avatarUrl ? (
                     <img 
                       src={currentUser.avatarUrl} 
                       alt={currentUser.fullName} 

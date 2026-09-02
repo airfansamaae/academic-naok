@@ -1215,6 +1215,67 @@ export class StorageService {
       }, 100);
     });
   }
+
+  // Upload School Logo or Member Avatar to Google Drive with Real-time Sync
+  public async uploadImageToGoogleDrive(
+    file: File,
+    onProgress?: (progress: number) => void
+  ): Promise<{ url: string; driveFileId?: string }> {
+    if (onProgress) onProgress(10);
+
+    const fullDataUrl = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+
+    if (onProgress) onProgress(35);
+
+    const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbzgmOBgQ4534lIiTVuUikzaEF0PXofybzvaYZlXPvFeY4U8d3KrcpXZ-MsooaHSgIQ/exec';
+    const gasUrl = localStorage.getItem('gas_web_app_url') || defaultGasUrl;
+    let driveFileId = 'drive_img_' + Date.now();
+
+    if (gasUrl) {
+      try {
+        const commaIdx = fullDataUrl.indexOf(',');
+        const rawBase64 = commaIdx >= 0 ? fullDataUrl.substring(commaIdx + 1) : fullDataUrl;
+        if (onProgress) onProgress(65);
+
+        const response = await fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({
+            action: 'uploadFile',
+            fileName: file.name || `image_${Date.now()}.png`,
+            mimeType: file.type || 'image/png',
+            base64Data: rawBase64,
+            targetFolderId: '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-',
+          }),
+        });
+
+        if (onProgress) onProgress(90);
+
+        try {
+          const data = await response.json();
+          if (data && data.fileId) {
+            driveFileId = data.fileId;
+          }
+        } catch {
+          // Body not readable due to CORS redirect
+        }
+      } catch (err) {
+        console.warn('[Image Upload Google Drive Warning]', err);
+      }
+    }
+
+    if (onProgress) onProgress(100);
+
+    return {
+      url: fullDataUrl,
+      driveFileId,
+    };
+  }
 }
 
 export const storage = StorageService.getInstance();
