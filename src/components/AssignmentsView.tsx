@@ -678,7 +678,25 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                       <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 flex-wrap">
                         {isAdmin ? (
                           /* ADMIN CONTROLS: View Submissions + Edit Assignment + Delete Assignment */
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {assignmentSubs.length > 0 && (
+                              <button
+                                onClick={() => {
+                                  const firstSubWithFile = assignmentSubs.find(s => s.files && s.files.length > 0);
+                                  if (firstSubWithFile && firstSubWithFile.files[0]) {
+                                    onOpenFilePreview(firstSubWithFile.files[0], assignment.title, firstSubWithFile.memberName);
+                                  } else {
+                                    setMemberStatusModalAssignment(assignment);
+                                  }
+                                }}
+                                title="ดูตัวอย่างไฟล์งานที่ส่ง (Instant Preview)"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition-all cursor-pointer shadow-2xs"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-purple-600" />
+                                <span>ดูตัวอย่างงาน ({assignmentSubs.length})</span>
+                              </button>
+                            )}
+
                             <button
                               onClick={() => setMemberStatusModalAssignment(assignment)}
                               title="ดูสถานะการส่งและตรวจงานของสมาชิก"
