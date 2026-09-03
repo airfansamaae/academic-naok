@@ -60,7 +60,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const handleSelectTab = onSelectTab || onNavigate || (() => {});
   const handleOpenAuth = onOpenAuth || onOpenLoginModal || (() => {});
   const driveFolderId = school?.primaryDriveFolderId || '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
-  const driveUrl = `https://drive.google.com/drive/folders/${driveFolderId}`;
+  const driveUrl = `https://drive.google.com/drive/folders/${driveFolderId}?usp=sharing`;
 
   return (
     <header className="bg-white/95 backdrop-blur-md border-b border-purple-100/80 sticky top-0 z-30 shadow-xs">
@@ -109,6 +109,19 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 {syncInfo.status === 'syncing' || manualSyncing ? 'กำลังซิงค์...' : 'Real-time Sync สด'}
               </span>
             </button>
+
+            {/* Shared Google Drive Link */}
+            <a
+              id="header-shared-drive-link"
+              href={driveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="เปิดโฟลเดอร์ Google Drive รวม (ทุกคนที่มีลิงก์เข้าถึงได้)"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-purple-600" />
+              <span className="hidden md:inline text-[11px]">Drive รวม</span>
+            </a>
 
             {/* Active User Pill */}
             {currentUser ? (

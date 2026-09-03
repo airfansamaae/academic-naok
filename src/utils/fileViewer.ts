@@ -3,6 +3,7 @@ import { UploadedFile } from '../types';
 /**
  * Utility to open authentic attached files in a full-screen new tab.
  * Strictly displays the ACTUAL attached file with zero fabrication or artificial embellishment.
+ * Never forces restricted cross-origin Google Drive iframes that produce 'You need access' errors.
  */
 export function openAuthenticFileInNewTab(
   file: UploadedFile,
@@ -11,14 +12,14 @@ export function openAuthenticFileInNewTab(
 ) {
   if (!file) return;
 
-  // 1. Synchronously open new tab to guarantee popup blocker won't block it
+  // 1. Synchronously open new tab to prevent browser pop-up blockers
   const newTab = window.open('', '_blank');
   if (!newTab) {
     alert('กรุณาอนุญาต Pop-up ในเบราว์เซอร์เพื่อเปิดดูตัวอย่างไฟล์เต็มหน้าจอ');
     return;
   }
 
-  // 2. Prepare file data and determine type
+  // 2. Prepare file metadata and determine file type
   const lowerName = (file.name || '').toLowerCase();
   const isPdf = file.previewType === 'pdf' || lowerName.endsWith('.pdf') || (file.mimeType && file.mimeType.includes('pdf'));
   const isImage = file.previewType === 'image' || lowerName.match(/\.(png|jpg|jpeg|gif|webp|svg)$/) || (file.mimeType && file.mimeType.includes('image'));
@@ -29,17 +30,18 @@ export function openAuthenticFileInNewTab(
   const isPresentation = file.previewType === 'presentation' || lowerName.match(/\.(pptx|ppt)$/) || (file.mimeType && file.mimeType.includes('presentation'));
 
   let blobUrl = '';
+  let fileBase64 = '';
   let textDecoded: string | null = null;
   let parsedCsv: string[][] | null = null;
 
-  // Convert binary dataUrl to Object URL if available
+  // Extract base64 and create Object Blob URL if data is present
   if (file.fileDataUrl && file.fileDataUrl.startsWith('data:')) {
     try {
       const parts = file.fileDataUrl.split(';base64,');
       const mime = parts[0].replace('data:', '') || file.mimeType || 'application/octet-stream';
-      const rawBase64 = parts[1];
-      if (rawBase64) {
-        const byteCharacters = atob(rawBase64);
+      fileBase64 = parts[1] || '';
+      if (fileBase64) {
+        const byteCharacters = atob(fileBase64);
         const byteNumbers = new Uint8Array(byteCharacters.length);
         for (let i = 0; i < byteCharacters.length; i++) {
           byteNumbers[i] = byteCharacters.charCodeAt(i);
@@ -57,9 +59,7 @@ export function openAuthenticFileInNewTab(
                 .filter((r) => r.trim().length > 0)
                 .map((row) => row.split(',').map((c) => c.trim().replace(/^["']|["']$/g, '')));
             }
-          } catch {
-            // text decode fallback
-          }
+          } catch {}
         }
       }
     } catch (err) {
@@ -84,11 +84,8 @@ export function openAuthenticFileInNewTab(
       .replace(/'/g, '&#039;');
   };
 
-  // Google Drive preview URL if file is stored in Drive
-  const hasRealDriveId = file.driveFileId && !file.driveFileId.startsWith('temp_') && !file.driveFileId.startsWith('drive_f_');
-  const drivePreviewUrl = hasRealDriveId 
-    ? `https://drive.google.com/file/d/${file.driveFileId}/preview` 
-    : (file.viewUrl && file.viewUrl.startsWith('http') ? file.viewUrl : '');
+  // Shared Drive Root Folder
+  const driveSharedFolderUrl = 'https://drive.google.com/drive/folders/1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-?usp=sharing';
 
   // File type badge label & color
   let typeBadge = 'เอกสาร';
@@ -96,7 +93,7 @@ export function openAuthenticFileInNewTab(
   if (isPdf) { typeBadge = 'PDF DOCUMENT'; badgeColor = '#ef4444'; }
   else if (isImage) { typeBadge = 'IMAGE'; badgeColor = '#3b82f6'; }
   else if (isSpreadsheet || isCsv) { typeBadge = 'EXCEL / SPREADSHEET'; badgeColor = '#10b981'; }
-  else if (isDoc) { typeBadge = 'WORD DOCUMENT'; badgeColor = '#2563eb'; }
+  else if (isDoc) { typeBadge = 'WORD DOCUMENT (.DOCX)'; badgeColor = '#2563eb'; }
   else if (isPresentation) { typeBadge = 'POWERPOINT'; badgeColor = '#f97316'; }
 
   // Generate Viewport Content
@@ -112,24 +109,24 @@ export function openAuthenticFileInNewTab(
           title="${esc(file.name)}"
         ></iframe>
       `;
-    } else if (drivePreviewUrl) {
-      viewportHtml = `
-        <iframe 
-          id="previewFrame" 
-          src="${drivePreviewUrl}" 
-          style="width: 100%; height: 100%; border: none;" 
-          allow="autoplay"
-          title="${esc(file.name)}"
-        ></iframe>
-      `;
     } else {
       viewportHtml = `
         <div class="empty-view">
-          <div class="card">
-            <h3>ไฟล์เอกสาร PDF: ${esc(file.name)}</h3>
-            <p>ขนาดไฟล์: ${sizeText} | อัปโหลดเมื่อ: ${new Date(file.uploadedAt).toLocaleString('th-TH')}</p>
-            <p style="margin-top: 12px; color: #94a3b8;">สามารถกดดาวน์โหลดไฟล์ต้นฉบับไปเปิดอ่านในคอมพิวเตอร์ได้ทันที</p>
-            <a href="${esc(file.downloadUrl || '#')}" class="btn primary" style="margin-top: 16px; display: inline-block;">ดาวน์โหลดไฟล์ PDF</a>
+          <div class="card" style="max-width: 600px; text-align: center;">
+            <div style="font-size: 40px; margin-bottom: 12px;">📕</div>
+            <h3 style="font-size: 18px; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">${esc(file.name)}</h3>
+            <p style="font-size: 13px; color: #94a3b8; margin-bottom: 20px;">
+              ขนาดไฟล์: <strong>${sizeText}</strong> • อัปโหลดเมื่อ: <strong>${new Date(file.uploadedAt).toLocaleString('th-TH')}</strong>
+            </p>
+            <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 24px; text-align: left; font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+              <div>📌 <strong>ชื่องาน:</strong> ${esc(assignmentTitle || 'งานวิชาการ')}</div>
+              <div>👤 <strong>ผู้ส่ง:</strong> ${esc(submitterName || 'สมาชิก')}</div>
+            </div>
+            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+              <button id="downloadOriginalBtn" class="btn primary">⬇️ ดาวน์โหลดไฟล์ PDF</button>
+              ${file.viewUrl ? `<a href="${esc(file.viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn secondary">🌐 เปิดใน Google Drive</a>` : ''}
+              <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn secondary">📁 เปิดโฟลเดอร์ Google Drive รวม</a>
+            </div>
           </div>
         </div>
       `;
@@ -144,6 +141,66 @@ export function openAuthenticFileInNewTab(
           alt="${esc(file.name)}"
           style="max-width: 95%; max-height: 95%; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);" 
         />
+      </div>
+    `;
+  } else if (isDoc) {
+    viewportHtml = `
+      <div id="docxViewport" style="height: 100%; overflow-y: auto; background: #0f172a; padding: 24px 16px; display: flex; flex-direction: column; align-items: center;">
+        <div id="docxLoading" style="color: #cbd5e1; font-size: 14px; margin-top: 50px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+          <div class="spinner"></div>
+          <span style="font-weight: 600; letter-spacing: 0.3px;">กำลังประมวลผลและเรนเดอร์หน้าเอกสาร Word (.docx) ต้นฉบับจริง...</span>
+          <span style="font-size: 12px; color: #94a3b8;">ถอดรหัสเนื้อหา ตาราง และฟอนต์จากไฟล์ที่แนบมา</span>
+        </div>
+        <div id="docxContainer" style="width: 100%; max-width: 900px; display: none;"></div>
+        <div id="docxFallback" style="width: 100%; max-width: 650px; display: none; margin-top: 30px;">
+          <div class="card" style="text-align: center;">
+            <div style="font-size: 44px; margin-bottom: 12px;">📘</div>
+            <h3 style="font-size: 18px; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">${esc(file.name)}</h3>
+            <p style="font-size: 13px; color: #94a3b8; margin-bottom: 20px;">
+              ประเภท: <strong>${typeBadge}</strong> • ขนาด: <strong>${sizeText}</strong>
+            </p>
+            <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 24px; text-align: left; font-size: 13px; color: #cbd5e1; line-height: 1.7;">
+              <div>📌 <strong>ชื่องาน:</strong> ${esc(assignmentTitle || 'งานมอบหมายวิชาการ')}</div>
+              <div>👤 <strong>ผู้ส่ง:</strong> ${esc(submitterName || 'สมาชิก')}</div>
+              <div>⏰ <strong>วันที่อัปโหลด:</strong> ${new Date(file.uploadedAt).toLocaleString('th-TH')}</div>
+            </div>
+            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+              <button id="downloadOriginalBtn" class="btn primary">⬇️ ดาวน์โหลดไฟล์ต้นฉบับ (.docx)</button>
+              ${file.viewUrl ? `<a href="${esc(file.viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn secondary">🌐 เปิดใน Google Drive</a>` : ''}
+              <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn secondary">📁 เปิดโฟลเดอร์ Google Drive รวม</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  } else if (isSpreadsheet) {
+    viewportHtml = `
+      <div id="xlsxViewport" style="height: 100%; display: flex; flex-direction: column; background: #0b0f19; overflow: hidden;">
+        <div id="xlsxTabs" style="display: flex; gap: 6px; padding: 10px 16px; background: #111827; border-bottom: 1px solid #1f2937; overflow-x: auto; flex-shrink: 0;"></div>
+        <div style="padding: 8px 16px; background: #161f30; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1f2937; flex-shrink: 0;">
+          <span id="xlsxInfo" style="font-size: 13px; color: #38bdf8; font-weight: 600;">📊 ตารางข้อมูลจริงจากไฟล์ Excel</span>
+          <input type="text" id="xlsxFilter" placeholder="ค้นหาข้อความในแผ่นงาน..." oninput="filterXlsxTable()" style="padding: 6px 14px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #fff; font-size: 12px; width: 240px;" />
+        </div>
+        <div id="xlsxContainer" style="flex: 1; overflow: auto; padding: 16px;">
+          <div id="xlsxLoading" style="color: #cbd5e1; font-size: 14px; margin-top: 50px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+            <div class="spinner"></div>
+            <span>กำลังอ่านข้อมูลแผ่นงาน Excel...</span>
+          </div>
+        </div>
+        <div id="xlsxFallback" style="display: none; padding: 30px;">
+          <div class="card" style="max-width: 600px; margin: 0 auto; text-align: center;">
+            <div style="font-size: 40px; margin-bottom: 12px;">📊</div>
+            <h3 style="font-size: 18px; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">${esc(file.name)}</h3>
+            <p style="font-size: 13px; color: #94a3b8; margin-bottom: 20px;">
+              ประเภท: <strong>Excel (.xlsx)</strong> • ขนาด: <strong>${sizeText}</strong>
+            </p>
+            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+              <button id="downloadOriginalBtn" class="btn primary">⬇️ ดาวน์โหลดไฟล์ Excel</button>
+              ${file.viewUrl ? `<a href="${esc(file.viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn secondary">🌐 เปิดใน Google Drive</a>` : ''}
+              <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn secondary">📁 เปิดโฟลเดอร์ Google Drive รวม</a>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   } else if (isCsv && parsedCsv && parsedCsv.length > 0) {
@@ -181,19 +238,8 @@ export function openAuthenticFileInNewTab(
         <pre style="font-family: 'Courier New', monospace; font-size: 13px; color: #e2e8f0; line-height: 1.6; white-space: pre-wrap; word-break: break-word;">${esc(textDecoded)}</pre>
       </div>
     `;
-  } else if (drivePreviewUrl) {
-    // Office documents or other files hosted on Google Drive
-    viewportHtml = `
-      <iframe 
-        id="previewFrame" 
-        src="${drivePreviewUrl}" 
-        style="width: 100%; height: 100%; border: none;" 
-        allow="autoplay"
-        title="${esc(file.name)}"
-      ></iframe>
-    `;
   } else {
-    // Real Office Document with binary data url or download
+    // Other file types
     viewportHtml = `
       <div class="empty-view">
         <div class="card" style="max-width: 600px; text-align: center;">
@@ -210,7 +256,7 @@ export function openAuthenticFileInNewTab(
             <div>👤 <strong>ผู้ส่ง:</strong> ${esc(submitterName || 'สมาชิก')}</div>
             <div>⏰ <strong>วันที่อัปโหลด:</strong> ${new Date(file.uploadedAt).toLocaleString('th-TH')}</div>
             <div style="margin-top: 8px; font-size: 12px; color: #38bdf8;">
-              ✓ ไฟล์ต้นฉบับแท้ 100% ถูกบันทึกและพร้อมสำหรับการดาวน์โหลดหรือเปิดผ่าน Google Drive
+              ✓ ไฟล์ต้นฉบับแท้ 100% บันทึกเรียบร้อย สามารถดาวน์โหลดไปใช้งานต่อได้ทันที
             </div>
           </div>
 
@@ -223,6 +269,9 @@ export function openAuthenticFileInNewTab(
                 🌐 เปิดใน Google Drive
               </a>
             ` : ''}
+            <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="font-size: 14px; padding: 10px 20px; text-decoration: none;">
+              📁 เปิดโฟลเดอร์ Google Drive รวม
+            </a>
           </div>
         </div>
       </div>
@@ -239,6 +288,13 @@ export function openAuthenticFileInNewTab(
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Docx-Preview & JSZip for genuine client-side Word document rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.3/dist/docx-preview.min.js"></script>
+  <!-- SheetJS for genuine client-side Excel spreadsheet rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -252,7 +308,7 @@ export function openAuthenticFileInNewTab(
       -webkit-font-smoothing: antialiased;
     }
     header {
-      height: 56px;
+      height: 58px;
       background: #111827;
       border-bottom: 1px solid #1f2937;
       padding: 0 16px;
@@ -273,11 +329,12 @@ export function openAuthenticFileInNewTab(
       font-size: 10px;
       font-weight: 700;
       letter-spacing: 0.5px;
-      padding: 3px 8px;
+      padding: 4px 9px;
       border-radius: 6px;
       color: #fff;
       background: ${badgeColor};
       flex-shrink: 0;
+      text-transform: uppercase;
     }
     .file-meta {
       min-width: 0;
@@ -289,7 +346,7 @@ export function openAuthenticFileInNewTab(
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 480px;
+      max-width: 460px;
     }
     .file-sub {
       font-size: 11px;
@@ -297,7 +354,7 @@ export function openAuthenticFileInNewTab(
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 480px;
+      max-width: 460px;
     }
     .header-right {
       display: flex;
@@ -306,7 +363,7 @@ export function openAuthenticFileInNewTab(
       flex-shrink: 0;
     }
     .btn {
-      padding: 6px 14px;
+      padding: 7px 14px;
       border-radius: 8px;
       font-size: 12px;
       font-weight: 600;
@@ -317,6 +374,7 @@ export function openAuthenticFileInNewTab(
       align-items: center;
       gap: 6px;
       transition: all 0.15s ease;
+      text-decoration: none;
     }
     .btn.primary {
       background: #7c3aed;
@@ -333,10 +391,19 @@ export function openAuthenticFileInNewTab(
     }
     .btn.secondary:hover {
       background: #374151;
+      color: #fff;
+    }
+    .btn.drive {
+      background: #047857;
+      color: #fff;
+      border-color: #059669;
+    }
+    .btn.drive:hover {
+      background: #065f46;
     }
     .main-viewport {
       flex: 1;
-      height: calc(100vh - 56px);
+      height: calc(100vh - 58px);
       position: relative;
       background: #0b0f19;
       overflow: hidden;
@@ -369,6 +436,61 @@ export function openAuthenticFileInNewTab(
       padding: 20px;
       background: #0b0f19;
     }
+    .spinner {
+      width: 38px;
+      height: 38px;
+      border: 3px solid rgba(124, 58, 237, 0.2);
+      border-top-color: #a855f7;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    /* Docx container styles */
+    .docx-document {
+      background: #ffffff !important;
+      color: #1e293b !important;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+      margin-bottom: 24px !important;
+      border-radius: 4px !important;
+      padding: 40px !important;
+    }
+    .docx-document section {
+      padding: 0 !important;
+    }
+    .docx-document table {
+      border-collapse: collapse !important;
+      width: 100% !important;
+      margin: 14px 0 !important;
+    }
+    .docx-document td, .docx-document th {
+      border: 1px solid #94a3b8 !important;
+      padding: 6px 10px !important;
+    }
+    /* Spreadsheet table styles */
+    #currentSheetTable {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      color: #e2e8f0;
+      background: #111827;
+    }
+    #currentSheetTable th, #currentSheetTable td {
+      border: 1px solid #334155;
+      padding: 6px 10px;
+      text-align: left;
+    }
+    #currentSheetTable tr:first-child td, #currentSheetTable tr:first-child th {
+      background: #1e293b;
+      font-weight: 700;
+      color: #38bdf8;
+      position: sticky;
+      top: 0;
+    }
+    #currentSheetTable tr:hover td {
+      background: #1e293b;
+    }
   </style>
 </head>
 <body>
@@ -388,17 +510,21 @@ export function openAuthenticFileInNewTab(
         <span>ดาวน์โหลดไฟล์จริง</span>
       </button>
       ${file.viewUrl ? `
-        <a href="${esc(file.viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn secondary" title="เปิดใน Google Drive">
+        <a href="${esc(file.viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn secondary" title="เปิดไฟล์ใน Google Drive">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-          <span>Google Drive</span>
+          <span>เปิดใน Drive</span>
         </a>
       ` : ''}
+      <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn drive" title="เปิดโฟลเดอร์ Google Drive รวม (ทุกคนที่มีลิงก์)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        <span>โฟลเดอร์ Drive รวม</span>
+      </a>
       <button class="btn secondary" onclick="window.print()" title="พิมพ์">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
         <span>พิมพ์</span>
       </button>
       <button class="btn secondary" onclick="window.close()" title="ปิดแท็บนี้">
-        <span>ปิดหน้าต่าง</span>
+        <span>ปิด</span>
       </button>
     </div>
   </header>
@@ -408,13 +534,14 @@ export function openAuthenticFileInNewTab(
   </main>
 
   <script>
+    var fileBase64 = ${JSON.stringify(fileBase64 || '')};
+    var rawData = ${JSON.stringify(file.fileDataUrl || '')};
+    var downloadUrl = ${JSON.stringify(file.downloadUrl || '')};
+    var fileName = ${JSON.stringify(file.name || 'document')};
+    var mimeType = ${JSON.stringify(file.mimeType || 'application/octet-stream')};
+
     // Direct Binary Download Handler
     function triggerDownload() {
-      var rawData = ${JSON.stringify(file.fileDataUrl || '')};
-      var downloadUrl = ${JSON.stringify(file.downloadUrl || '')};
-      var fileName = ${JSON.stringify(file.name || 'document')};
-      var mimeType = ${JSON.stringify(file.mimeType || 'application/octet-stream')};
-
       if (rawData && rawData.indexOf(';base64,') > -1) {
         try {
           var parts = rawData.split(';base64,');
@@ -449,7 +576,7 @@ export function openAuthenticFileInNewTab(
         return;
       }
 
-      alert('ไม่พบข้อมูลไฟล์สำหรับดาวน์โหลด');
+      alert('ไฟล์นี้พร้อมให้เปิดในโฟลเดอร์ Google Drive รวม');
     }
 
     var dlBtn = document.getElementById('headerDownloadBtn');
@@ -457,6 +584,120 @@ export function openAuthenticFileInNewTab(
 
     var origBtn = document.getElementById('downloadOriginalBtn');
     if (origBtn) origBtn.addEventListener('click', triggerDownload);
+
+    // Render Word Document (.docx) directly using docx-preview
+    ${isDoc ? `
+    (function renderDocx() {
+      var loader = document.getElementById('docxLoading');
+      var container = document.getElementById('docxContainer');
+      var fallback = document.getElementById('docxFallback');
+
+      if (!fileBase64) {
+        if (loader) loader.style.display = 'none';
+        if (fallback) fallback.style.display = 'block';
+        return;
+      }
+
+      try {
+        var binaryString = atob(fileBase64);
+        var bytes = new Uint8Array(binaryString.length);
+        for (var i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        if (window.docx && window.docx.renderAsync) {
+          window.docx.renderAsync(bytes.buffer, container, null, {
+            className: 'docx-document',
+            inWrapper: false,
+            ignoreWidth: false,
+            ignoreHeight: false,
+            ignoreFonts: false,
+            breakPages: true,
+            useBase64URL: true,
+            renderChanges: false,
+            renderHeaders: true,
+            renderFooters: true
+          }).then(function() {
+            if (loader) loader.style.display = 'none';
+            if (container) container.style.display = 'block';
+          }).catch(function(err) {
+            console.warn('Docx renderAsync failed:', err);
+            if (loader) loader.style.display = 'none';
+            if (fallback) fallback.style.display = 'block';
+          });
+        } else {
+          if (loader) loader.style.display = 'none';
+          if (fallback) fallback.style.display = 'block';
+        }
+      } catch (err) {
+        console.error('Docx parsing error:', err);
+        if (loader) loader.style.display = 'none';
+        if (fallback) fallback.style.display = 'block';
+      }
+    })();
+    ` : ''}
+
+    // Render Excel Document (.xlsx) directly using SheetJS
+    ${isSpreadsheet ? `
+    (function renderXlsx() {
+      var loader = document.getElementById('xlsxLoading');
+      var tabs = document.getElementById('xlsxTabs');
+      var container = document.getElementById('xlsxContainer');
+      var fallback = document.getElementById('xlsxFallback');
+
+      if (!fileBase64 || !window.XLSX) {
+        if (loader) loader.style.display = 'none';
+        if (fallback) fallback.style.display = 'block';
+        return;
+      }
+
+      try {
+        var binaryString = atob(fileBase64);
+        var bytes = new Uint8Array(binaryString.length);
+        for (var i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        var workbook = XLSX.read(bytes.buffer, { type: 'array' });
+        if (loader) loader.style.display = 'none';
+
+        function showSheet(name) {
+          var sheet = workbook.Sheets[name];
+          var html = XLSX.utils.sheet_to_html(sheet, { id: 'currentSheetTable' });
+          container.innerHTML = html;
+
+          document.querySelectorAll('.xlsx-tab-btn').forEach(function(b) {
+            if (b.dataset.sheet === name) {
+              b.style.background = '#7c3aed';
+              b.style.color = '#fff';
+            } else {
+              b.style.background = '#1f2937';
+              b.style.color = '#9ca3af';
+            }
+          });
+        }
+
+        workbook.SheetNames.forEach(function(name, idx) {
+          var btn = document.createElement('button');
+          btn.className = 'btn xlsx-tab-btn';
+          btn.dataset.sheet = name;
+          btn.textContent = '📄 ' + name;
+          btn.style.padding = '5px 12px';
+          btn.style.fontSize = '12px';
+          btn.onclick = function() { showSheet(name); };
+          tabs.appendChild(btn);
+        });
+
+        if (workbook.SheetNames.length > 0) {
+          showSheet(workbook.SheetNames[0]);
+        }
+      } catch (err) {
+        console.error('Xlsx parsing error:', err);
+        if (loader) loader.style.display = 'none';
+        if (fallback) fallback.style.display = 'block';
+      }
+    })();
+    ` : ''}
 
     // CSV Table Filter Function
     function filterCsvTable() {
@@ -475,11 +716,29 @@ export function openAuthenticFileInNewTab(
         }
       }
     }
+
+    // XLSX Table Filter Function
+    function filterXlsxTable() {
+      var input = document.getElementById('xlsxFilter');
+      if (!input) return;
+      var filter = input.value.toLowerCase();
+      var table = document.getElementById('currentSheetTable');
+      if (!table) return;
+      var trs = table.getElementsByTagName('tr');
+      for (var i = 1; i < trs.length; i++) {
+        var text = trs[i].textContent || trs[i].innerText;
+        if (text.toLowerCase().indexOf(filter) > -1) {
+          trs[i].style.display = '';
+        } else {
+          trs[i].style.display = 'none';
+        }
+      }
+    }
   </script>
 </body>
 </html>`;
 
-  // Write content to newTab
+  // 3. Write content to newTab
   newTab.document.open();
   newTab.document.write(fullHtml);
   newTab.document.close();

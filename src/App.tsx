@@ -250,11 +250,15 @@ export default function App() {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+      <div className="min-h-screen bg-linear-to-br from-slate-900 via-purple-950/40 to-slate-950 flex flex-col items-center justify-center p-4 selection:bg-purple-600 selection:text-white">
         <AuthModal
           isOpen={true}
           isFullScreen={true}
-          onLoginSuccess={refreshAllData}
+          onLoginSuccess={() => {
+            const freshUser = storage.getCurrentUser();
+            setCurrentUser(freshUser);
+            refreshAllData();
+          }}
         />
       </div>
     );

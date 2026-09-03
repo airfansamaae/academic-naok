@@ -170,7 +170,12 @@ export class StorageService {
         localStorage.setItem(STORAGE_KEYS.SCHOOL, JSON.stringify(INITIAL_SCHOOL_PROFILE));
       }
     }
-    // Strict Login Security: Never default or bypass login without explicit authentication
+    // Strict Login Security: Always require explicit Login. Purge legacy auto-login records from localStorage
+    try {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+      localStorage.removeItem('academic_current_user');
+      localStorage.removeItem('academic_current_user_v1');
+    } catch {}
   }
 
   // --- Real-time Multi-browser Sync Engine ---
@@ -431,18 +436,28 @@ export class StorageService {
     });
   }
 
-  // --- Current Auth Session ---
+  // --- Current Auth Session (Strictly Session-Based to Prevent Auto-Login) ---
   public getCurrentUser(): User | null {
-    const data = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-    return data ? JSON.parse(data) : null;
+    try {
+      const data = sessionStorage.getItem('academic_auth_session');
+      return data ? JSON.parse(data) : null;
+    } catch {
+      return null;
+    }
   }
 
   public setCurrentUser(user: User | null) {
-    if (user) {
-      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
-    } else {
+    try {
+      if (user) {
+        sessionStorage.setItem('academic_auth_session', JSON.stringify(user));
+      } else {
+        sessionStorage.removeItem('academic_auth_session');
+      }
+      // Purge any lingering localStorage entries to prevent accidental auto-login
       localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    }
+      localStorage.removeItem('academic_current_user_v1');
+      localStorage.removeItem('academic_current_user');
+    } catch {}
     this.notify();
   }
 
