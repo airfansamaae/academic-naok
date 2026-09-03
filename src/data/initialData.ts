@@ -1,4 +1,10 @@
 import { User, Assignment, Submission, DocumentItem, Announcement, SchoolProfile } from '../types';
+import {
+  SEED_DOCX_RUBRICS,
+  SEED_DOCX_TEMPLATE,
+  SEED_XLSX_SCIENCE,
+  SEED_XLSX_MATH
+} from './seedBinaries';
 
 export const INITIAL_SCHOOL_PROFILE: SchoolProfile = {
   id: 'school_01',
@@ -182,6 +188,7 @@ export const INITIAL_SUBMISSIONS: Submission[] = [
         viewUrl: 'https://drive.google.com/file/d/1IpsaGJ-sample-file-02/view',
         previewType: 'doc',
         previewContent: 'แบบประเมิน Rubric Assessment สำหรับกิจกรรมกลุ่ม Active Learning\nระดับคะแนน:\n4 = ดีเยี่ยม (ผลงานมีความคิดริเริ่มสร้างสรรค์ ทำงานสำเร็จก่อนเวลา)\n3 = ดี (ผลงานถูกต้องตามข้อกำหนด ทำงานสำเร็จตามเวลา)\n2 = พอใช้ (ผลงานมีข้อบกพร่องบางส่วน ต้องได้รับการแนะนำ)\n1 = ปรับปรุง (ต้องปรับแก้สาระสำคัญ)',
+        fileDataUrl: SEED_DOCX_RUBRICS,
         uploadedAt: '2026-08-28T14:21:00Z',
       }
     ],
@@ -210,6 +217,7 @@ export const INITIAL_SUBMISSIONS: Submission[] = [
         viewUrl: 'https://drive.google.com/file/d/1IpsaGJ-sample-file-03/view',
         previewType: 'spreadsheet',
         previewContent: 'สรุปผลคะแนนเก็บ ปพ.5\nชั้น ม.2/1 จำนวนนักเรียน 35 คน\nผ่านเกณฑ์: 35 คน (100%)\nคะแนนเฉลี่ยกลางภาค: 78.4 / 100\nคุณลักษณะอันพึงประสงค์: ระดับดีเยี่ยม 30 คน, ระดับดี 5 คน',
+        fileDataUrl: SEED_XLSX_SCIENCE,
         uploadedAt: '2026-08-22T11:15:00Z',
       }
     ],
@@ -238,6 +246,7 @@ export const INITIAL_SUBMISSIONS: Submission[] = [
         viewUrl: 'https://drive.google.com/file/d/1IpsaGJ-sample-file-04/view',
         previewType: 'spreadsheet',
         previewContent: 'สรุปผลคะแนนเก็บ ปพ.5\nชั้น ม.1/2 จำนวนนักเรียน 32 คน\nผ่านเกณฑ์: 31 คน (96.8%)\nคะแนนเฉลี่ยกลางภาค: 74.2 / 100',
+        fileDataUrl: SEED_XLSX_MATH,
         uploadedAt: '2026-08-23T09:40:00Z',
       }
     ],
@@ -295,6 +304,7 @@ export const INITIAL_DOCUMENTS: DocumentItem[] = [
       viewUrl: 'https://drive.google.com/file/d/1IpsaGJ-doc-sample-01/view',
       previewType: 'doc',
       previewContent: 'โครงสร้างแบบฟอร์มแผนการจัดการเรียนรู้ Active Learning\n1. สาระและมาตรฐานการเรียนรู้\n2. ตัวชี้วัด / ผลการเรียนรู้\n3. สาระสำคัญ / ความคิดรวบยอด\n4. จุดประสงค์การเรียนรู้ (K-P-A)\n5. กระบวนการจัดการเรียนรู้ (ขั้นนำ - ขั้นสอน/ปฏิบัติ - ขั้นสรุป)\n6. สื่อ แหล่งเรียนรู้ และเครื่องมือประเมิน',
+      fileDataUrl: SEED_DOCX_TEMPLATE,
       uploadedAt: '2026-08-15T09:00:00Z',
     },
     createdAt: '2026-08-15T09:00:00Z',

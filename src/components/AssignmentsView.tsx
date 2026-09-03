@@ -1494,7 +1494,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                           type="button"
                           onClick={() => onOpenFilePreview(file, editingSubmission.assignmentTitle, editingSubmission.memberName)}
                           className="p-1.5 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors cursor-pointer"
-                          title="ดูไฟล์ตัวอย่าง"
+                          title="เปิดดูไฟล์ต้นฉบับในแท็บใหม่"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -1688,7 +1688,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                                     onOpenFilePreview(f, memberStatusModalAssignment.title, member.fullName);
                                   }}
                                   className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 cursor-pointer"
-                                  title={`ดูตัวอย่างไฟล์: ${f.name}`}
+                                  title={`เปิดดูไฟล์ต้นฉบับในแท็บใหม่: ${f.name}`}
                                 >
                                   <Eye className="w-3.5 h-3.5" />
                                   <span className="max-w-[100px] truncate">{f.name}</span>
@@ -1792,7 +1792,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                                   ? 'text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300'
                                   : 'text-purple-700 bg-purple-100 hover:bg-purple-200 border border-purple-200'
                               }`}
-                              title={`ดูตัวอย่างไฟล์: ${f.name}`}
+                              title={`เปิดดูไฟล์ต้นฉบับในแท็บใหม่: ${f.name}`}
                             >
                               <Eye className="w-3.5 h-3.5" />
                               <span className="max-w-[120px] truncate">{f.name}</span>

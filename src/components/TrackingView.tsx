@@ -346,11 +346,11 @@ export const TrackingView: React.FC<TrackingViewProps> = ({
 
                               {/* Action Buttons */}
                               <div className="flex items-center space-x-1.5 shrink-0">
-                                {/* Eye (Preview) Icon: Opens in-modal preview without redirect */}
+                                {/* Eye (Preview) Icon: Opens authentic original file in new tab */}
                                 <button
                                   onClick={() => onOpenFilePreview(file, assignment.title, sub.memberName)}
-                                  title="ดูตัวอย่างไฟล์ทันที (Instant Preview Modal)"
-                                  className="p-1.5 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors"
+                                  title="เปิดดูไฟล์ต้นฉบับในแท็บใหม่"
+                                  className="p-1.5 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors cursor-pointer"
                                 >
                                   <Eye className="w-4 h-4" />
                                 </button>

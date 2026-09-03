@@ -333,10 +333,10 @@ export const DocumentCenterView: React.FC<DocumentCenterViewProps> = ({
 
               {/* Right Action Icons (Preview, Download, Admin Edit/Delete) */}
               <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100 w-full sm:w-auto justify-end">
-                {/* Preview Icon (Modal inline preview) */}
+                {/* Preview Icon (Opens authentic original file in new tab) */}
                 <button
                   onClick={() => onOpenFilePreview(doc.file, doc.title, doc.uploaderName)}
-                  title="ดูตัวอย่างเอกสาร"
+                  title="เปิดดูไฟล์ต้นฉบับในแท็บใหม่"
                   className="p-1.5 sm:p-2 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors border border-purple-200 cursor-pointer"
                 >
                   <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />

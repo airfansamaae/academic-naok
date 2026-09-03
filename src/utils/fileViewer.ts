@@ -3,7 +3,7 @@ import { UploadedFile } from '../types';
 /**
  * Utility to open authentic attached files in a full-screen new tab.
  * Strictly displays the ACTUAL attached file with zero fabrication or artificial embellishment.
- * Never forces restricted cross-origin Google Drive iframes that produce 'You need access' errors.
+ * Does not add unsolicited headers, fake school names, or mock signatures.
  */
 export function openAuthenticFileInNewTab(
   file: UploadedFile,
@@ -15,7 +15,7 @@ export function openAuthenticFileInNewTab(
   // 1. Synchronously open new tab to prevent browser pop-up blockers
   const newTab = window.open('', '_blank');
   if (!newTab) {
-    alert('กรุณาอนุญาต Pop-up ในเบราว์เซอร์เพื่อเปิดดูตัวอย่างไฟล์เต็มหน้าจอ');
+    alert('กรุณาอนุญาต Pop-up ในเบราว์เซอร์เพื่อเปิดดูตัวอย่างไฟล์ในแท็บใหม่');
     return;
   }
 
@@ -29,7 +29,7 @@ export function openAuthenticFileInNewTab(
   const isSpreadsheet = file.previewType === 'spreadsheet' || lowerName.match(/\.(xlsx|xls)$/) || (file.mimeType && file.mimeType.includes('sheet'));
   const isPresentation = file.previewType === 'presentation' || lowerName.match(/\.(pptx|ppt)$/) || (file.mimeType && file.mimeType.includes('presentation'));
 
-  // Standard MIME type resolver to prevent OS/Office file lock conflicts
+  // Standard MIME type resolver
   const ext = lowerName.split('.').pop() || '';
   let accurateMime = file.mimeType || 'application/octet-stream';
   if (ext === 'docx') accurateMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -108,41 +108,105 @@ export function openAuthenticFileInNewTab(
   else if (isDoc) { typeBadge = 'WORD DOCUMENT (.DOCX)'; badgeColor = '#2563eb'; }
   else if (isPresentation) { typeBadge = 'POWERPOINT'; badgeColor = '#f97316'; }
 
-  // Generate Viewport Content
+  // -------------------------------------------------------------------------
+  // CASE 1: PDF DOCUMENT
+  // When a blobUrl is present: Show 100% genuine full-screen browser PDF viewer
+  // with zero embellishment, zero artificial cards, zero wrappers.
+  // -------------------------------------------------------------------------
+  if (isPdf && blobUrl) {
+    const pdfDirectHtml = `<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${esc(file.name)}</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #525659;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <iframe src="${blobUrl}#toolbar=1&navpanes=1" title="${esc(file.name)}"></iframe>
+</body>
+</html>`;
+    newTab.document.open();
+    newTab.document.write(pdfDirectHtml);
+    newTab.document.close();
+    return;
+  }
+
+  // If PDF doesn't have local blobUrl but has Google Drive fileId:
+  if (isPdf && file.driveFileId && file.driveFileId.length > 5) {
+    const drivePdfHtml = `<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${esc(file.name)}</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1e1e1e;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <iframe src="https://drive.google.com/file/d/${esc(file.driveFileId)}/preview" allow="autoplay" title="${esc(file.name)}"></iframe>
+</body>
+</html>`;
+    newTab.document.open();
+    newTab.document.write(drivePdfHtml);
+    newTab.document.close();
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // CASE 2: WORD, EXCEL, IMAGES, CSV, TEXT, OR FALLBACK
+  // Generate Viewport Content strictly reflecting the original file.
+  // -------------------------------------------------------------------------
   let viewportHtml = '';
 
   if (isPdf) {
-    if (blobUrl) {
-      viewportHtml = `
-        <iframe 
-          id="previewFrame" 
-          src="${blobUrl}#toolbar=1&navpanes=1" 
-          style="width: 100%; height: 100%; border: none; background: #525659;"
-          title="${esc(file.name)}"
-        ></iframe>
-      `;
-    } else {
-      viewportHtml = `
-        <div class="empty-view">
-          <div class="card" style="max-width: 600px; text-align: center;">
-            <div style="font-size: 40px; margin-bottom: 12px;">📕</div>
-            <h3 style="font-size: 18px; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">${esc(file.name)}</h3>
-            <p style="font-size: 13px; color: #94a3b8; margin-bottom: 20px;">
-              ขนาดไฟล์: <strong>${sizeText}</strong> • อัปโหลดเมื่อ: <strong>${new Date(file.uploadedAt).toLocaleString('th-TH')}</strong>
-            </p>
-            <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 24px; text-align: left; font-size: 13px; color: #cbd5e1; line-height: 1.6;">
-              <div>📌 <strong>ชื่องาน:</strong> ${esc(assignmentTitle || 'งานวิชาการ')}</div>
-              <div>👤 <strong>ผู้ส่ง:</strong> ${esc(submitterName || 'สมาชิก')}</div>
+    // PDF fallback when no binary blob or drive iframe: render clean authentic A4 document text
+    viewportHtml = `
+      <div id="docxViewport">
+        <div class="docx-wrapper">
+          <section class="docx" style="background: #ffffff; color: #111827; width: 210mm; min-height: 297mm; max-width: calc(100vw - 32px); padding: 25.4mm 20mm; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-radius: 2px; box-sizing: border-box; font-family: 'TH Sarabun New', 'Sarabun', Tahoma, sans-serif;">
+            <div style="border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 24px;">
+              <h1 style="font-size: 18pt; font-weight: 700; color: #0f172a; margin: 0;">${esc(file.name)}</h1>
+              <div style="font-size: 12pt; color: #64748b; margin-top: 6px;">
+                ${submitterName ? 'ผู้จัดทำ: ' + esc(submitterName) + ' • ' : ''}ขนาดไฟล์: ${sizeText} • วันที่: ${new Date(file.uploadedAt).toLocaleDateString('th-TH')}
+              </div>
             </div>
-            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
-              <button id="downloadOriginalBtn" class="btn primary">⬇️ ดาวน์โหลดไฟล์ PDF</button>
-              ${file.viewUrl ? `<a href="${esc(file.viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn secondary">🌐 เปิดใน Google Drive</a>` : ''}
-              <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn secondary">📁 เปิดโฟลเดอร์ Google Drive รวม</a>
+            <div style="font-size: 14pt; line-height: 1.8; color: #1e293b; white-space: pre-wrap; font-family: 'TH Sarabun New', 'Sarabun', sans-serif;">
+${esc(file.previewContent || 'เอกสารต้นฉบับ')}
             </div>
-          </div>
+          </section>
         </div>
-      `;
-    }
+      </div>
+    `;
   } else if (isImage) {
     const imgSrc = blobUrl || file.fileDataUrl || file.viewUrl || '';
     viewportHtml = `
@@ -181,36 +245,19 @@ export function openAuthenticFileInNewTab(
         <!-- Render container for docx-preview with authentic A4 pages -->
         <div id="docxContainer" style="width: 100%; display: none;"></div>
 
-        <!-- Fallback authentic A4 paper sheet if binary decoding fallback is used -->
+        <!-- Authentic fallback A4 paper sheet if binary decoding fallback is used -->
         <div id="docxFallbackA4" style="width: 100%; display: none; margin-top: 10px;">
           <div class="docx-wrapper">
             <section class="docx" style="background: #ffffff; color: #111827; width: 210mm; min-height: 297mm; max-width: calc(100vw - 32px); padding: 25.4mm 20mm; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-radius: 2px; box-sizing: border-box; font-family: 'TH Sarabun New', 'Sarabun', Tahoma, sans-serif; position: relative;">
-              <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                  <div style="font-size: 20pt; font-weight: 700; color: #1e3a8a; line-height: 1.2;">งานวิชาการและเอกสารมอบหมาย</div>
-                  <div style="font-size: 13pt; color: #475569;">โรงเรียนบ้านนาอก • ระบบบริหารงานวิชาการ</div>
-                </div>
-                <div style="text-align: right; font-size: 11pt; color: #64748b;">
-                  <div>หน้า 1 / 1</div>
-                  <div>เอกสารราชการ</div>
+              <div style="border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 24px;">
+                <h1 style="font-size: 18pt; font-weight: 700; color: #0f172a; margin: 0;">${esc(file.name)}</h1>
+                <div style="font-size: 12pt; color: #64748b; margin-top: 6px;">
+                  ${submitterName ? 'ผู้จัดทำ: ' + esc(submitterName) + ' • ' : ''}ขนาดไฟล์: ${sizeText} • วันที่: ${new Date(file.uploadedAt).toLocaleDateString('th-TH')}
                 </div>
               </div>
 
-              <div style="margin-bottom: 20px;">
-                <div style="font-size: 16pt; font-weight: 700; color: #0f172a; margin-bottom: 6px;">เรื่อง: ${esc(assignmentTitle || file.name)}</div>
-                <div style="font-size: 14pt; color: #334155;">ผู้ส่ง / จัดทำ: <strong>${esc(submitterName || 'ครูผู้รับผิดชอบ')}</strong> • วันที่ส่ง: ${new Date(file.uploadedAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
-              </div>
-
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 20px; margin-bottom: 24px; font-size: 14pt; line-height: 1.7; color: #1e293b; white-space: pre-wrap; font-family: 'TH Sarabun New', 'Sarabun', sans-serif;">
-${esc(file.previewContent || 'เอกสารแนบต้นฉบับในระบบ พร้อมเปิดใช้งานและดาวน์โหลด')}
-              </div>
-
-              <div style="margin-top: 32px; padding-top: 16px; border-top: 1px dashed #cbd5e1; display: flex; justify-content: space-between; align-items: center; font-size: 12pt; color: #64748b;">
-                <div>ชื่อไฟล์: ${esc(file.name)} (${sizeText})</div>
-                <div style="display: flex; gap: 8px;">
-                  <button id="downloadOriginalBtn" class="btn primary" style="padding: 6px 14px; font-size: 13px;">⬇️ ดาวน์โหลดไฟล์จริง</button>
-                  <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="padding: 6px 14px; font-size: 13px;">📁 โฟลเดอร์ Drive รวม</a>
-                </div>
+              <div style="font-size: 14pt; line-height: 1.8; color: #1e293b; white-space: pre-wrap; font-family: 'TH Sarabun New', 'Sarabun', sans-serif;">
+${esc(file.previewContent || 'เอกสารแนบต้นฉบับในระบบ')}
               </div>
             </section>
           </div>
@@ -299,9 +346,6 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
             <div>📌 <strong>ชื่องาน:</strong> ${esc(assignmentTitle || 'งานมอบหมายวิชาการ')}</div>
             <div>👤 <strong>ผู้ส่ง:</strong> ${esc(submitterName || 'สมาชิก')}</div>
             <div>⏰ <strong>วันที่อัปโหลด:</strong> ${new Date(file.uploadedAt).toLocaleString('th-TH')}</div>
-            <div style="margin-top: 8px; font-size: 12px; color: #38bdf8;">
-              ✓ ไฟล์ต้นฉบับแท้ 100% บันทึกเรียบร้อย สามารถดาวน์โหลดไปใช้งานต่อได้ทันที
-            </div>
           </div>
 
           <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
@@ -496,7 +540,7 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
     #docxViewport {
       height: 100%;
       overflow-y: auto;
-      background: #2b313d; /* Authentic Word Reading Desktop */
+      background: #2b313d;
       padding: 24px 16px 100px 16px;
       display: flex;
       flex-direction: column;
@@ -510,7 +554,7 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
       display: flex !important;
       flex-direction: column !important;
       align-items: center !important;
-      gap: 36px !important; /* Visible, authentic gap between pages */
+      gap: 36px !important;
       transform-origin: top center;
       transition: transform 0.15s ease;
     }
@@ -523,7 +567,7 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
       width: 210mm !important;
       min-height: 297mm !important;
       max-width: calc(100vw - 32px) !important;
-      margin: 0 auto 36px auto !important; /* Clear gap between every single page! */
+      margin: 0 auto 36px auto !important;
       box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.45), 0 0 1px 1px rgba(0, 0, 0, 0.1) !important;
       border-radius: 2px !important;
       position: relative !important;
@@ -567,7 +611,6 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
       pointer-events: none;
     }
 
-    /* Authentic Typography and Elements inside Word document */
     .docx-wrapper p, .docx-wrapper span, .docx-wrapper div, .docx-wrapper h1, .docx-wrapper h2, .docx-wrapper h3, .docx-wrapper table {
       font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', 'Angsana New', 'Cordia New', Tahoma, sans-serif !important;
     }
@@ -629,7 +672,7 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
           <span>เปิดใน Drive</span>
         </a>
       ` : ''}
-      <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn drive" title="เปิดโฟลเดอร์ Google Drive รวม (ทุกคนที่มีลิงก์)">
+      <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn drive" title="เปิดโฟลเดอร์ Google Drive รวม">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
         <span>โฟลเดอร์ Drive รวม</span>
       </a>
@@ -654,7 +697,6 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
     var fileName = ${JSON.stringify(file.name || 'document')};
     var mimeType = ${JSON.stringify(accurateMime)};
 
-    // Standard MIME Resolver to prevent Windows Defender / Office lock contention
     function getStandardOfficeMime(name, rawMime) {
       var ext = (name || '').split('.').pop().toLowerCase();
       if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -671,11 +713,10 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
       return rawMime || 'application/octet-stream';
     }
 
-    // Direct Binary Download Handler with lock protection and prolonged URL life
     var isDownloading = false;
 
     function triggerDownload() {
-      if (isDownloading) return; // Prevent double-triggering which creates lock contention in Word
+      if (isDownloading) return;
       isDownloading = true;
 
       var btn = document.getElementById('headerDownloadBtn');
@@ -705,9 +746,9 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
             uInt8Array[i] = raw.charCodeAt(i);
           }
           var blob = new Blob([uInt8Array], { type: targetMime });
-          var blobUrl = URL.createObjectURL(blob);
+          var bUrl = URL.createObjectURL(blob);
           var a = document.createElement('a');
-          a.href = blobUrl;
+          a.href = bUrl;
           a.download = fileName;
           a.setAttribute('download', fileName);
           document.body.appendChild(a);
@@ -717,10 +758,8 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
             if (a.parentNode) a.parentNode.removeChild(a);
           }, 500);
 
-          // Prolong Blob URL lifetime to 120 seconds.
-          // Fast revocation triggers "This file is in use by another application or user" in Windows Word.
           setTimeout(function() {
-            try { URL.revokeObjectURL(blobUrl); } catch(e){}
+            try { URL.revokeObjectURL(bUrl); } catch(e){}
           }, 120000);
 
           restoreButton();
@@ -761,9 +800,7 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
       var loader = document.getElementById('docxLoading');
       var container = document.getElementById('docxContainer');
       var fallback = document.getElementById('docxFallbackA4');
-      var toolbar = document.getElementById('docxToolbar');
 
-      // Zoom Controls Setup
       var currentZoom = 100;
       var zoomText = document.getElementById('docxZoomText');
 
@@ -822,7 +859,6 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
             if (loader) loader.style.display = 'none';
             if (container) container.style.display = 'block';
 
-            // Mark page numbers and count total pages
             var pages = container.querySelectorAll('.docx-wrapper > section.docx, section.docx');
             var countBadge = document.getElementById('docxPageCountText');
             if (countBadge && pages.length > 0) {
@@ -910,7 +946,6 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
     })();
     ` : ''}
 
-    // CSV Table Filter Function
     function filterCsvTable() {
       var input = document.getElementById('csvFilter');
       if (!input) return;
@@ -928,7 +963,6 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
       }
     }
 
-    // XLSX Table Filter Function
     function filterXlsxTable() {
       var input = document.getElementById('xlsxFilter');
       if (!input) return;
