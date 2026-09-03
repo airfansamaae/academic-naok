@@ -24,12 +24,40 @@ export interface SyncStatusInfo {
   mode: 'realtime_active' | 'polling' | 'local';
 }
 
+// Helper to resolve precise MIME types so Microsoft Office & Windows Defender do not lock files
+function getStandardOfficeMimeType(fileName: string, providedMime?: string): string {
+  const ext = (fileName || '').split('.').pop()?.toLowerCase() || '';
+  if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (ext === 'doc') return 'application/msword';
+  if (ext === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (ext === 'xls') return 'application/vnd.ms-excel';
+  if (ext === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  if (ext === 'ppt') return 'application/vnd.ms-powerpoint';
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'png') return 'image/png';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'zip') return 'application/zip';
+  if (ext === 'csv') return 'text/csv;charset=utf-8;';
+  return providedMime || 'application/octet-stream';
+}
+
+// Download Lock to prevent double clicks creating conflicting file stream locks in Windows
+let lastDownloadTimestamp = 0;
+
 // 100% Authentic Original File Downloader (Supports Word .docx/.doc, Excel .xlsx, PDF, PPTX, Images, ZIP)
 // Retains exact original filename and triggers direct in-browser download without opening blank tabs
 export function triggerDirectDownload(file: UploadedFile) {
   if (!file) return;
 
+  const now = Date.now();
+  if (now - lastDownloadTimestamp < 1500) {
+    // Debounce duplicate click within 1.5 seconds to avoid double file stream lock
+    return;
+  }
+  lastDownloadTimestamp = now;
+
   const originalFileName = file.name || 'document';
+  const targetMime = getStandardOfficeMimeType(originalFileName, file.mimeType);
 
   // Helper to trigger direct download from blob or base64 without opening new tab
   const saveBlobDirectly = (blob: Blob, fileName: string) => {
@@ -41,22 +69,40 @@ export function triggerDirectDownload(file: UploadedFile) {
     link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+    
+    // Safely remove anchor tag after click event finishes
+    setTimeout(() => {
+      try {
+        if (link.parentNode) link.parentNode.removeChild(link);
+      } catch {
+        // ignore
+      }
+    }, 500);
+
+    // CRITICAL FIX: Never revoke blob URL in 3 seconds!
+    // Revoking too quickly while Windows Defender scans or while Word creates lock file
+    // causes Windows to throw "This file is in use by another application or user".
+    // Keep blob URL alive for 120 seconds.
+    setTimeout(() => {
+      try {
+        URL.revokeObjectURL(blobUrl);
+      } catch {
+        // ignore
+      }
+    }, 120000);
   };
 
   // 1. If we have the authentic binary base64 Data URL (Original uploaded binary file)
   if (file.fileDataUrl && file.fileDataUrl.startsWith('data:')) {
     try {
       const parts = file.fileDataUrl.split(';base64,');
-      const contentType = parts[0].replace('data:', '') || file.mimeType || 'application/octet-stream';
       const rawBase64 = parts[1];
       const byteCharacters = atob(rawBase64);
       const byteNumbers = new Uint8Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
-      const blob = new Blob([byteNumbers], { type: contentType });
+      const blob = new Blob([byteNumbers], { type: targetMime });
       saveBlobDirectly(blob, originalFileName);
       return;
     } catch (err) {
@@ -68,7 +114,13 @@ export function triggerDirectDownload(file: UploadedFile) {
       link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
+      setTimeout(() => {
+        try {
+          if (link.parentNode) link.parentNode.removeChild(link);
+        } catch {
+          // ignore
+        }
+      }, 500);
       return;
     }
   }

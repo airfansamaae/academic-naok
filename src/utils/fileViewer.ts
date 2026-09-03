@@ -29,6 +29,19 @@ export function openAuthenticFileInNewTab(
   const isSpreadsheet = file.previewType === 'spreadsheet' || lowerName.match(/\.(xlsx|xls)$/) || (file.mimeType && file.mimeType.includes('sheet'));
   const isPresentation = file.previewType === 'presentation' || lowerName.match(/\.(pptx|ppt)$/) || (file.mimeType && file.mimeType.includes('presentation'));
 
+  // Standard MIME type resolver to prevent OS/Office file lock conflicts
+  const ext = lowerName.split('.').pop() || '';
+  let accurateMime = file.mimeType || 'application/octet-stream';
+  if (ext === 'docx') accurateMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  else if (ext === 'doc') accurateMime = 'application/msword';
+  else if (ext === 'xlsx') accurateMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  else if (ext === 'xls') accurateMime = 'application/vnd.ms-excel';
+  else if (ext === 'pptx') accurateMime = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  else if (ext === 'pdf') accurateMime = 'application/pdf';
+  else if (ext === 'png') accurateMime = 'image/png';
+  else if (ext === 'jpg' || ext === 'jpeg') accurateMime = 'image/jpeg';
+  else if (ext === 'csv') accurateMime = 'text/csv;charset=utf-8;';
+
   let blobUrl = '';
   let fileBase64 = '';
   let textDecoded: string | null = null;
@@ -38,7 +51,6 @@ export function openAuthenticFileInNewTab(
   if (file.fileDataUrl && file.fileDataUrl.startsWith('data:')) {
     try {
       const parts = file.fileDataUrl.split(';base64,');
-      const mime = parts[0].replace('data:', '') || file.mimeType || 'application/octet-stream';
       fileBase64 = parts[1] || '';
       if (fileBase64) {
         const byteCharacters = atob(fileBase64);
@@ -46,7 +58,7 @@ export function openAuthenticFileInNewTab(
         for (let i = 0; i < byteCharacters.length; i++) {
           byteNumbers[i] = byteCharacters.charCodeAt(i);
         }
-        const blob = new Blob([byteNumbers], { type: mime });
+        const blob = new Blob([byteNumbers], { type: accurateMime });
         blobUrl = URL.createObjectURL(blob);
 
         if (isCsv || isText) {
@@ -145,30 +157,62 @@ export function openAuthenticFileInNewTab(
     `;
   } else if (isDoc) {
     viewportHtml = `
-      <div id="docxViewport" style="height: 100%; overflow-y: auto; background: #0f172a; padding: 24px 16px; display: flex; flex-direction: column; align-items: center;">
+      <div id="docxViewport">
+        <!-- Sticky Word Toolbar: Zoom and Authentic Page Count -->
+        <div id="docxToolbar" style="position: sticky; top: 12px; z-index: 50; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 9999px; padding: 6px 16px; margin-bottom: 28px; display: flex; align-items: center; gap: 10px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.6);">
+          <button class="btn secondary" id="docxZoomOutBtn" style="padding: 4px 10px; font-size: 13px;" title="ย่อขนาด">-</button>
+          <span id="docxZoomText" style="font-size: 12px; font-weight: 700; color: #f8fafc; min-width: 44px; text-align: center;">100%</span>
+          <button class="btn secondary" id="docxZoomInBtn" style="padding: 4px 10px; font-size: 13px;" title="ขยายขนาด">+</button>
+          <button class="btn secondary" id="docxZoomResetBtn" style="padding: 4px 10px; font-size: 12px;" title="ขนาด 100%">100%</button>
+          <button class="btn secondary" id="docxFitWidthBtn" style="padding: 4px 10px; font-size: 12px;" title="ปรับพอดีหน้าจอ">พอดีจอ</button>
+          <span style="color: #475569; margin: 0 2px;">|</span>
+          <span id="docxPageCountBadge" style="font-size: 12px; color: #93c5fd; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+            <span id="docxPageCountText">จัดหน้าเอกสาร A4 ต้นฉบับ (มีช่องว่างคั่นหน้าชัดเจน)</span>
+          </span>
+        </div>
+
         <div id="docxLoading" style="color: #cbd5e1; font-size: 14px; margin-top: 50px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
           <div class="spinner"></div>
-          <span style="font-weight: 600; letter-spacing: 0.3px;">กำลังประมวลผลและเรนเดอร์หน้าเอกสาร Word (.docx) ต้นฉบับจริง...</span>
-          <span style="font-size: 12px; color: #94a3b8;">ถอดรหัสเนื้อหา ตาราง และฟอนต์จากไฟล์ที่แนบมา</span>
+          <span style="font-weight: 600; letter-spacing: 0.3px;">กำลังอ่านและจัดหน้าเอกสาร Word (.docx) ต้นฉบับจริง...</span>
+          <span style="font-size: 12px; color: #94a3b8;">ถอดรหัสเนื้อหา ขนาดหน้า A4 ตาราง และรูปแบบฟอนต์</span>
         </div>
-        <div id="docxContainer" style="width: 100%; max-width: 900px; display: none;"></div>
-        <div id="docxFallback" style="width: 100%; max-width: 650px; display: none; margin-top: 30px;">
-          <div class="card" style="text-align: center;">
-            <div style="font-size: 44px; margin-bottom: 12px;">📘</div>
-            <h3 style="font-size: 18px; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">${esc(file.name)}</h3>
-            <p style="font-size: 13px; color: #94a3b8; margin-bottom: 20px;">
-              ประเภท: <strong>${typeBadge}</strong> • ขนาด: <strong>${sizeText}</strong>
-            </p>
-            <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 24px; text-align: left; font-size: 13px; color: #cbd5e1; line-height: 1.7;">
-              <div>📌 <strong>ชื่องาน:</strong> ${esc(assignmentTitle || 'งานมอบหมายวิชาการ')}</div>
-              <div>👤 <strong>ผู้ส่ง:</strong> ${esc(submitterName || 'สมาชิก')}</div>
-              <div>⏰ <strong>วันที่อัปโหลด:</strong> ${new Date(file.uploadedAt).toLocaleString('th-TH')}</div>
-            </div>
-            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
-              <button id="downloadOriginalBtn" class="btn primary">⬇️ ดาวน์โหลดไฟล์ต้นฉบับ (.docx)</button>
-              ${file.viewUrl ? `<a href="${esc(file.viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn secondary">🌐 เปิดใน Google Drive</a>` : ''}
-              <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn secondary">📁 เปิดโฟลเดอร์ Google Drive รวม</a>
-            </div>
+
+        <!-- Render container for docx-preview with authentic A4 pages -->
+        <div id="docxContainer" style="width: 100%; display: none;"></div>
+
+        <!-- Fallback authentic A4 paper sheet if binary decoding fallback is used -->
+        <div id="docxFallbackA4" style="width: 100%; display: none; margin-top: 10px;">
+          <div class="docx-wrapper">
+            <section class="docx" style="background: #ffffff; color: #111827; width: 210mm; min-height: 297mm; max-width: calc(100vw - 32px); padding: 25.4mm 20mm; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-radius: 2px; box-sizing: border-box; font-family: 'TH Sarabun New', 'Sarabun', Tahoma, sans-serif; position: relative;">
+              <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <div style="font-size: 20pt; font-weight: 700; color: #1e3a8a; line-height: 1.2;">งานวิชาการและเอกสารมอบหมาย</div>
+                  <div style="font-size: 13pt; color: #475569;">โรงเรียนบ้านนาอก • ระบบบริหารงานวิชาการ</div>
+                </div>
+                <div style="text-align: right; font-size: 11pt; color: #64748b;">
+                  <div>หน้า 1 / 1</div>
+                  <div>เอกสารราชการ</div>
+                </div>
+              </div>
+
+              <div style="margin-bottom: 20px;">
+                <div style="font-size: 16pt; font-weight: 700; color: #0f172a; margin-bottom: 6px;">เรื่อง: ${esc(assignmentTitle || file.name)}</div>
+                <div style="font-size: 14pt; color: #334155;">ผู้ส่ง / จัดทำ: <strong>${esc(submitterName || 'ครูผู้รับผิดชอบ')}</strong> • วันที่ส่ง: ${new Date(file.uploadedAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+              </div>
+
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 20px; margin-bottom: 24px; font-size: 14pt; line-height: 1.7; color: #1e293b; white-space: pre-wrap; font-family: 'TH Sarabun New', 'Sarabun', sans-serif;">
+${esc(file.previewContent || 'เอกสารแนบต้นฉบับในระบบ พร้อมเปิดใช้งานและดาวน์โหลด')}
+              </div>
+
+              <div style="margin-top: 32px; padding-top: 16px; border-top: 1px dashed #cbd5e1; display: flex; justify-content: space-between; align-items: center; font-size: 12pt; color: #64748b;">
+                <div>ชื่อไฟล์: ${esc(file.name)} (${sizeText})</div>
+                <div style="display: flex; gap: 8px;">
+                  <button id="downloadOriginalBtn" class="btn primary" style="padding: 6px 14px; font-size: 13px;">⬇️ ดาวน์โหลดไฟล์จริง</button>
+                  <a href="${driveSharedFolderUrl}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="padding: 6px 14px; font-size: 13px;">📁 โฟลเดอร์ Drive รวม</a>
+                </div>
+              </div>
+            </section>
           </div>
         </div>
       </div>
@@ -284,7 +328,7 @@ export function openAuthenticFileInNewTab(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${esc(file.name)} - ตัวอย่างไฟล์แนบจริง</title>
+  <title>${esc(file.name)} - ตัวอย่างไฟล์ต้นฉบับจริง</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -447,27 +491,97 @@ export function openAuthenticFileInNewTab(
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
-    /* Docx container styles */
-    .docx-document {
-      background: #ffffff !important;
-      color: #1e293b !important;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
-      margin-bottom: 24px !important;
-      border-radius: 4px !important;
-      padding: 40px !important;
+
+    /* Microsoft Word Authentic A4 Viewport & Styles */
+    #docxViewport {
+      height: 100%;
+      overflow-y: auto;
+      background: #2b313d; /* Authentic Word Reading Desktop */
+      padding: 24px 16px 100px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      scroll-behavior: smooth;
     }
-    .docx-document section {
+
+    .docx-wrapper {
+      background: transparent !important;
       padding: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      gap: 36px !important; /* Visible, authentic gap between pages */
+      transform-origin: top center;
+      transition: transform 0.15s ease;
     }
-    .docx-document table {
+
+    /* Individual Authentic A4 Paper Sheet */
+    .docx-wrapper > section.docx,
+    section.docx {
+      background: #ffffff !important;
+      color: #0f172a !important;
+      width: 210mm !important;
+      min-height: 297mm !important;
+      max-width: calc(100vw - 32px) !important;
+      margin: 0 auto 36px auto !important; /* Clear gap between every single page! */
+      box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.45), 0 0 1px 1px rgba(0, 0, 0, 0.1) !important;
+      border-radius: 2px !important;
+      position: relative !important;
+      box-sizing: border-box !important;
+      font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', 'Angsana New', 'Cordia New', Tahoma, sans-serif !important;
+    }
+
+    /* Visible Page Separation Banner Between Pages */
+    .docx-wrapper > section.docx:not(:last-child)::after {
+      content: "— จบหน้ากระดาษ (ขึ้นหน้าถัดไป) —";
+      position: absolute;
+      bottom: -28px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      color: #94a3b8;
+      background: #1e293b;
+      padding: 3px 18px;
+      border-radius: 9999px;
+      border: 1px solid #334155;
+      pointer-events: none;
+      white-space: nowrap;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Page number pill in top-right of page */
+    .docx-wrapper > section.docx::before {
+      content: "หน้า " attr(data-page-no);
+      position: absolute;
+      top: 10px;
+      right: 16px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #94a3b8;
+      background: #f8fafc;
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+      pointer-events: none;
+    }
+
+    /* Authentic Typography and Elements inside Word document */
+    .docx-wrapper p, .docx-wrapper span, .docx-wrapper div, .docx-wrapper h1, .docx-wrapper h2, .docx-wrapper h3, .docx-wrapper table {
+      font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', 'Angsana New', 'Cordia New', Tahoma, sans-serif !important;
+    }
+    .docx-wrapper table {
       border-collapse: collapse !important;
       width: 100% !important;
-      margin: 14px 0 !important;
+      margin: 12px 0 !important;
     }
-    .docx-document td, .docx-document th {
-      border: 1px solid #94a3b8 !important;
+    .docx-wrapper td, .docx-wrapper th {
+      border: 1px solid #64748b !important;
       padding: 6px 10px !important;
+      vertical-align: top !important;
     }
+
     /* Spreadsheet table styles */
     #currentSheetTable {
       width: 100%;
@@ -507,7 +621,7 @@ export function openAuthenticFileInNewTab(
     <div class="header-right">
       <button class="btn primary" id="headerDownloadBtn" title="ดาวน์โหลดไฟล์ต้นฉบับ">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-        <span>ดาวน์โหลดไฟล์จริง</span>
+        <span id="headerDownloadBtnText">ดาวน์โหลดไฟล์จริง</span>
       </button>
       ${file.viewUrl ? `
         <a href="${esc(file.viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn secondary" title="เปิดไฟล์ใน Google Drive">
@@ -538,31 +652,82 @@ export function openAuthenticFileInNewTab(
     var rawData = ${JSON.stringify(file.fileDataUrl || '')};
     var downloadUrl = ${JSON.stringify(file.downloadUrl || '')};
     var fileName = ${JSON.stringify(file.name || 'document')};
-    var mimeType = ${JSON.stringify(file.mimeType || 'application/octet-stream')};
+    var mimeType = ${JSON.stringify(accurateMime)};
 
-    // Direct Binary Download Handler
+    // Standard MIME Resolver to prevent Windows Defender / Office lock contention
+    function getStandardOfficeMime(name, rawMime) {
+      var ext = (name || '').split('.').pop().toLowerCase();
+      if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      if (ext === 'doc') return 'application/msword';
+      if (ext === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      if (ext === 'xls') return 'application/vnd.ms-excel';
+      if (ext === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      if (ext === 'ppt') return 'application/vnd.ms-powerpoint';
+      if (ext === 'pdf') return 'application/pdf';
+      if (ext === 'png') return 'image/png';
+      if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+      if (ext === 'zip') return 'application/zip';
+      if (ext === 'csv') return 'text/csv;charset=utf-8;';
+      return rawMime || 'application/octet-stream';
+    }
+
+    // Direct Binary Download Handler with lock protection and prolonged URL life
+    var isDownloading = false;
+
     function triggerDownload() {
+      if (isDownloading) return; // Prevent double-triggering which creates lock contention in Word
+      isDownloading = true;
+
+      var btn = document.getElementById('headerDownloadBtn');
+      var btnText = document.getElementById('headerDownloadBtnText');
+      if (btnText) btnText.textContent = '⏳ กำลังเตรียมไฟล์...';
+      if (btn) btn.style.opacity = '0.7';
+
+      function restoreButton() {
+        setTimeout(function() {
+          if (btnText) btnText.textContent = '✓ บันทึกไฟล์สำเร็จ';
+          setTimeout(function() {
+            if (btnText) btnText.textContent = 'ดาวน์โหลดไฟล์จริง';
+            if (btn) btn.style.opacity = '1';
+            isDownloading = false;
+          }, 1800);
+        }, 600);
+      }
+
+      var targetMime = getStandardOfficeMime(fileName, mimeType);
+
       if (rawData && rawData.indexOf(';base64,') > -1) {
         try {
           var parts = rawData.split(';base64,');
-          var contentType = parts[0].replace('data:', '') || mimeType;
           var raw = atob(parts[1]);
           var uInt8Array = new Uint8Array(raw.length);
           for (var i = 0; i < raw.length; ++i) {
             uInt8Array[i] = raw.charCodeAt(i);
           }
-          var blob = new Blob([uInt8Array], { type: contentType });
+          var blob = new Blob([uInt8Array], { type: targetMime });
           var blobUrl = URL.createObjectURL(blob);
           var a = document.createElement('a');
           a.href = blobUrl;
           a.download = fileName;
+          a.setAttribute('download', fileName);
           document.body.appendChild(a);
           a.click();
-          document.body.removeChild(a);
-          setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 3000);
+          
+          setTimeout(function() {
+            if (a.parentNode) a.parentNode.removeChild(a);
+          }, 500);
+
+          // Prolong Blob URL lifetime to 120 seconds.
+          // Fast revocation triggers "This file is in use by another application or user" in Windows Word.
+          setTimeout(function() {
+            try { URL.revokeObjectURL(blobUrl); } catch(e){}
+          }, 120000);
+
+          restoreButton();
           return;
         } catch (e) {
           console.error('Download error:', e);
+          restoreButton();
         }
       }
 
@@ -570,13 +735,18 @@ export function openAuthenticFileInNewTab(
         var a = document.createElement('a');
         a.href = downloadUrl;
         a.download = fileName;
+        a.setAttribute('download', fileName);
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
+        setTimeout(function() {
+          if (a.parentNode) a.parentNode.removeChild(a);
+        }, 500);
+        restoreButton();
         return;
       }
 
-      alert('ไฟล์นี้พร้อมให้เปิดในโฟลเดอร์ Google Drive รวม');
+      restoreButton();
+      alert('ไม่พบข้อมูลไฟล์ต้นฉบับ สามารถเปิดในโฟลเดอร์ Google Drive รวมได้');
     }
 
     var dlBtn = document.getElementById('headerDownloadBtn');
@@ -590,7 +760,37 @@ export function openAuthenticFileInNewTab(
     (function renderDocx() {
       var loader = document.getElementById('docxLoading');
       var container = document.getElementById('docxContainer');
-      var fallback = document.getElementById('docxFallback');
+      var fallback = document.getElementById('docxFallbackA4');
+      var toolbar = document.getElementById('docxToolbar');
+
+      // Zoom Controls Setup
+      var currentZoom = 100;
+      var zoomText = document.getElementById('docxZoomText');
+
+      function applyZoom(zoom) {
+        currentZoom = Math.max(50, Math.min(200, zoom));
+        if (zoomText) zoomText.textContent = currentZoom + '%';
+        var wrapper = container.querySelector('.docx-wrapper');
+        if (wrapper) {
+          wrapper.style.transform = 'scale(' + (currentZoom / 100) + ')';
+        }
+      }
+
+      var zIn = document.getElementById('docxZoomInBtn');
+      if (zIn) zIn.onclick = function() { applyZoom(currentZoom + 15); };
+      var zOut = document.getElementById('docxZoomOutBtn');
+      if (zOut) zOut.onclick = function() { applyZoom(currentZoom - 15); };
+      var zReset = document.getElementById('docxZoomResetBtn');
+      if (zReset) zReset.onclick = function() { applyZoom(100); };
+      var zFit = document.getElementById('docxFitWidthBtn');
+      if (zFit) zFit.onclick = function() {
+        var viewport = document.getElementById('docxViewport');
+        if (viewport) {
+          var availWidth = viewport.clientWidth - 48;
+          var fitZoom = Math.round((availWidth / 800) * 100);
+          applyZoom(fitZoom);
+        }
+      };
 
       if (!fileBase64) {
         if (loader) loader.style.display = 'none';
@@ -607,8 +807,8 @@ export function openAuthenticFileInNewTab(
 
         if (window.docx && window.docx.renderAsync) {
           window.docx.renderAsync(bytes.buffer, container, null, {
-            className: 'docx-document',
-            inWrapper: false,
+            className: 'docx',
+            inWrapper: true,
             ignoreWidth: false,
             ignoreHeight: false,
             ignoreFonts: false,
@@ -616,10 +816,21 @@ export function openAuthenticFileInNewTab(
             useBase64URL: true,
             renderChanges: false,
             renderHeaders: true,
-            renderFooters: true
+            renderFooters: true,
+            experimental: true
           }).then(function() {
             if (loader) loader.style.display = 'none';
             if (container) container.style.display = 'block';
+
+            // Mark page numbers and count total pages
+            var pages = container.querySelectorAll('.docx-wrapper > section.docx, section.docx');
+            var countBadge = document.getElementById('docxPageCountText');
+            if (countBadge && pages.length > 0) {
+              countBadge.textContent = 'แสดง ' + pages.length + ' หน้า (ขนาด A4 เสมือนจริง มีระยะเว้นคั่นหน้า)';
+            }
+            pages.forEach(function(pageEl, idx) {
+              pageEl.setAttribute('data-page-no', (idx + 1) + ' / ' + (pages.length || 1));
+            });
           }).catch(function(err) {
             console.warn('Docx renderAsync failed:', err);
             if (loader) loader.style.display = 'none';

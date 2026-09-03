@@ -149,12 +149,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   const content = (
-    <div className="bg-white rounded-3xl w-full max-w-[480px] h-[610px] p-6 sm:p-7 shadow-2xl shadow-purple-950/10 border border-slate-200/90 relative flex flex-col justify-between select-none overflow-hidden">
+    <div className="bg-white rounded-2xl w-full max-w-[390px] p-5 sm:p-6 shadow-xl shadow-purple-950/20 border border-slate-200/90 relative flex flex-col justify-between select-none animate-in fade-in zoom-in-95 duration-200">
       {onClose && !isFullScreen && (
         <button
           onClick={onClose}
           type="button"
-          className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+          className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
           title="ปิดหน้าต่าง"
         >
           <X className="w-4 h-4" />
@@ -163,8 +163,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       {/* Header / Logo / Title */}
       <div>
-        <div className="text-center mb-4">
-          <div className="w-13 h-13 rounded-2xl bg-purple-50 border border-purple-100/80 p-2 flex items-center justify-center mx-auto mb-2.5 shadow-2xs">
+        <div className="text-center mb-3.5">
+          <div className="w-12 h-12 rounded-xl bg-purple-50 border border-purple-100 p-1.5 flex items-center justify-center mx-auto mb-2 shadow-2xs">
             {school?.logoUrl ? (
               <img 
                 src={school.logoUrl} 
@@ -176,165 +176,159 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <GraduationCap className="w-6 h-6 text-purple-700" />
             )}
           </div>
-          <h3 className="text-base font-black text-slate-900 tracking-tight leading-snug px-2 truncate">
+          <h3 className="text-sm font-black text-slate-900 tracking-tight leading-snug px-1 line-clamp-2">
             {school?.name || 'ระบบบริหารจัดการงานวิชาการและศูนย์เอกสาร'}
           </h3>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-[11px] text-slate-500 mt-0.5">
             {mode === 'login' 
-              ? 'กรุณากรอก ID และ Password เพื่อเข้าสู่ระบบงานวิชาการ' 
+              ? 'กรุณากรอก ID และ Password เพื่อเข้าสู่ระบบ' 
               : 'สมัครสมาชิกสำหรับคณะครูและบุคลากรทางการศึกษา'}
           </p>
         </div>
 
-        {/* Tab Switcher (เข้าสู่ระบบ / สมัครสมาชิก) - Exactly Matched Frame */}
-        <div className="flex gap-1.5 p-1 bg-slate-100/90 rounded-2xl mb-4 border border-slate-200/70">
+        {/* Tab Switcher (เข้าสู่ระบบ / สมัครสมาชิก) */}
+        <div className="flex gap-1 p-1 bg-slate-100 rounded-xl mb-3.5 border border-slate-200/70">
           <button
             type="button"
             onClick={() => setMode('login')}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               mode === 'login'
-                ? 'bg-white text-purple-900 shadow-xs border border-slate-200/50'
+                ? 'bg-white text-purple-900 shadow-2xs border border-slate-200/60'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
             <LogIn className="w-3.5 h-3.5" />
-            <span>เข้าสู่ระบบ (Sign In)</span>
+            <span>เข้าสู่ระบบ</span>
           </button>
           <button
             type="button"
             onClick={() => setMode('register')}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               mode === 'register'
-                ? 'bg-white text-purple-900 shadow-xs border border-slate-200/50'
+                ? 'bg-white text-purple-900 shadow-2xs border border-slate-200/60'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
             <UserPlus className="w-3.5 h-3.5" />
-            <span>สมัครสมาชิก (Sign Up)</span>
+            <span>สมัครสมาชิก</span>
           </button>
         </div>
       </div>
 
-      {/* Body Form - Exact Matched Size and Framing (Zero Jumping) */}
-      <div className="flex-1 flex flex-col justify-between overflow-hidden">
+      {/* Body Form */}
+      <div className="flex-1 flex flex-col justify-between">
         {mode === 'login' ? (
           /* 1. LOGIN FORM */
-          <form onSubmit={handleLogin} className="flex-1 flex flex-col justify-between">
-            <div className="space-y-3.5 pt-1">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ID (ชื่อผู้ใช้งาน) *
-                </label>
-                <div className="relative">
-                  <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    required
-                    value={loginId}
-                    onChange={(e) => setLoginId(e.target.value)}
-                    placeholder="กรอก ID ผู้ใช้งาน (เช่น Admin หรือ ID ครู)..."
-                    className="w-full pl-10 pr-3.5 py-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/60 focus:bg-white text-slate-900 transition-colors"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Password (รหัสผ่าน) *
-                </label>
-                <div className="relative">
-                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="password"
-                    required
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    placeholder="กรอก Password..."
-                    className="w-full pl-10 pr-3.5 py-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/60 focus:bg-white text-slate-900 transition-colors"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-1">
-                <div className="p-3 bg-purple-50/70 border border-purple-100 rounded-xl text-purple-900 text-[11px] leading-relaxed flex items-start gap-2">
-                  <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-                  <span>
-                    ระบบรักษาความปลอดภัย: มีการตรวจจับ Inactivity และออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน 15 นาที
-                  </span>
-                </div>
+          <form onSubmit={handleLogin} className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                ID (ชื่อผู้ใช้งาน) *
+              </label>
+              <div className="relative">
+                <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  required
+                  value={loginId}
+                  onChange={(e) => setLoginId(e.target.value)}
+                  placeholder="กรอก ID (เช่น Admin หรือ ID ครู)..."
+                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/60 focus:bg-white text-slate-900 transition-colors"
+                />
               </div>
             </div>
 
-            <div className="pt-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Password (รหัสผ่าน) *
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="password"
+                  required
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="กรอก Password..."
+                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/60 focus:bg-white text-slate-900 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div className="p-2.5 bg-purple-50/70 border border-purple-100 rounded-xl text-purple-900 text-[11px] leading-relaxed flex items-start gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0 mt-0.5" />
+              <span>
+                ปลอดภัยสูง: ตรวจจับ Inactivity และตัดเซสชันเมื่อไม่มีการใช้งาน 15 นาที
+              </span>
+            </div>
+
+            <div className="pt-2">
               <button
                 type="submit"
-                className="w-full py-2.5 sm:py-3 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-md glow-purple-hover flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-xs glow-purple-hover flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <LogIn className="w-4 h-4" />
+                <LogIn className="w-3.5 h-3.5" />
                 <span>เข้าสู่ระบบ (Sign In)</span>
               </button>
             </div>
           </form>
         ) : (
           /* 2. REGISTER FORM: STRICTLY ONLY ชื่อ-สกุล, ID, Password */
-          <form onSubmit={handleRegister} className="flex-1 flex flex-col justify-between">
-            <div className="space-y-2.5 pt-0.5">
-              <div className="bg-amber-50/90 border border-amber-200 p-2 rounded-xl text-amber-900 text-[11px] font-medium flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <span>
-                  เมื่อสมัครแล้ว ข้อมูลจะส่งให้ <strong>Admin อนุมัติ</strong> ก่อนจึงจะเข้าสู่ระบบได้
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  1. ชื่อ-สกุล (Full Name) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={regFullName}
-                  onChange={(e) => setRegFullName(e.target.value)}
-                  placeholder="ระบุชื่อ-สกุล (เช่น นายสมศักดิ์ สุขใจ)"
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/60 focus:bg-white text-slate-900 transition-colors"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  2. ID (ชื่อผู้ใช้งาน) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={regId}
-                  onChange={(e) => setRegId(e.target.value)}
-                  placeholder="ระบุ ID ที่ต้องการใช้ (เช่น krusomsak)"
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/60 focus:bg-white text-slate-900 transition-colors"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  3. Password (รหัสผ่าน) *
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={regPassword}
-                  onChange={(e) => setRegPassword(e.target.value)}
-                  placeholder="กำหนดรหัสผ่าน (อย่างน้อย 4-6 ตัวอักษร)..."
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/60 focus:bg-white text-slate-900 transition-colors"
-                />
-              </div>
+          <form onSubmit={handleRegister} className="space-y-2.5">
+            <div className="bg-amber-50/90 border border-amber-200 p-2 rounded-xl text-amber-900 text-[11px] font-medium flex items-start gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+              <span>
+                เมื่อสมัครแล้ว จะส่งให้ <strong>Admin อนุมัติ</strong> ก่อนจึงจะเข้าใช้งานได้
+              </span>
             </div>
 
-            <div className="pt-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-0.5">
+                1. ชื่อ-สกุล (Full Name) *
+              </label>
+              <input
+                type="text"
+                required
+                value={regFullName}
+                onChange={(e) => setRegFullName(e.target.value)}
+                placeholder="ระบุชื่อ-สกุล (เช่น นายสมศักดิ์ สุขใจ)"
+                className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/60 focus:bg-white text-slate-900 transition-colors"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-0.5">
+                2. ID (ชื่อผู้ใช้งาน) *
+              </label>
+              <input
+                type="text"
+                required
+                value={regId}
+                onChange={(e) => setRegId(e.target.value)}
+                placeholder="ระบุ ID ที่ต้องการ (เช่น krusomsak)"
+                className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/60 focus:bg-white text-slate-900 transition-colors"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-0.5">
+                3. Password (รหัสผ่าน) *
+              </label>
+              <input
+                type="password"
+                required
+                value={regPassword}
+                onChange={(e) => setRegPassword(e.target.value)}
+                placeholder="กำหนดรหัสผ่าน (อย่างน้อย 4 ตัวอักษร)..."
+                className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/60 focus:bg-white text-slate-900 transition-colors"
+              />
+            </div>
+
+            <div className="pt-2">
               <button
                 type="submit"
-                className="w-full py-2.5 sm:py-3 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-md glow-purple-hover flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-xs glow-purple-hover flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <UserPlus className="w-4 h-4" />
+                <UserPlus className="w-3.5 h-3.5" />
                 <span>สมัครสมาชิก (Sign Up)</span>
               </button>
             </div>
@@ -346,7 +340,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (isFullScreen) {
     return (
-      <div className="min-h-screen bg-slate-100/80 flex items-center justify-center p-4">
+      <div className="w-full flex items-center justify-center p-2">
         {content}
       </div>
     );

@@ -563,11 +563,11 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                 setAdminFormType(activeSubTab === 'announcements' ? 'announcement' : 'assignment');
                 setIsAdminPlusModalOpen(true);
               }}
-              title="สร้างงาน / ประกาศใหม่"
-              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-1.5 transition-all shadow-xs glow-purple-hover font-bold text-xs cursor-pointer"
+              title={activeSubTab === 'announcements' ? 'สร้างประกาศใหม่ (+)' : 'มอบหมายงานใหม่ (+)'}
+              aria-label={activeSubTab === 'announcements' ? 'สร้างประกาศใหม่' : 'มอบหมายงานใหม่'}
+              className="w-10 h-10 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white flex items-center justify-center transition-all shadow-md shadow-purple-500/25 glow-purple-hover cursor-pointer group relative"
             >
-              <Plus className="w-4 h-4" />
-              <span>{activeSubTab === 'announcements' ? 'สร้างประกาศใหม่' : 'มอบหมายงานใหม่'}</span>
+              <Plus className="w-5 h-5 stroke-[2.5] transition-transform duration-200 group-hover:rotate-90" />
             </button>
           ) : (
             <button
