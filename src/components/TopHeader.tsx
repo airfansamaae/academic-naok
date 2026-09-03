@@ -27,7 +27,6 @@ interface TopHeaderProps {
   onOpenLoginModal?: () => void;
   announcements?: any[];
   users?: any[];
-  onSwitchUser?: (user: User) => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({

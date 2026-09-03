@@ -170,10 +170,7 @@ export class StorageService {
         localStorage.setItem(STORAGE_KEYS.SCHOOL, JSON.stringify(INITIAL_SCHOOL_PROFILE));
       }
     }
-    if (!localStorage.getItem(STORAGE_KEYS.CURRENT_USER)) {
-      // Default to Master Admin for easy testing
-      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(INITIAL_USERS[0]));
-    }
+    // Strict Login Security: Never default or bypass login without explicit authentication
   }
 
   // --- Real-time Multi-browser Sync Engine ---
@@ -465,8 +462,15 @@ export class StorageService {
     const trimmedUser = usernameInput.trim();
     const trimmedPass = passwordInput.trim();
 
-    // 1. MASTER ADMIN BYPASS MODE (Username "Admin", Password "456789")
-    if (trimmedUser.toLowerCase() === 'admin' && trimmedPass === '456789') {
+    if (!trimmedUser || !trimmedPass) {
+      return { success: false, message: 'กรุณากรอกทั้งชื่อผู้ใช้ (Username) และรหัสผ่าน (Password)' };
+    }
+
+    // 1. MASTER ADMIN AUTHENTICATION (Username "Admin", Password "456789")
+    if (trimmedUser.toLowerCase() === 'admin') {
+      if (trimmedPass !== '456789') {
+        return { success: false, message: 'รหัสผ่าน Admin ไม่ถูกต้อง (รหัสผ่านเริ่มต้นสำหรับ Admin คือ 456789)' };
+      }
       const users = this.getUsers();
       let admin = users.find(u => u.username.toLowerCase() === 'admin');
       if (!admin) {
@@ -476,12 +480,18 @@ export class StorageService {
       return { success: true, user: admin };
     }
 
-    // 2. Standard User Authentication Check
+    // 2. Standard Member Authentication Check
     const users = this.getUsers();
     const found = users.find(u => u.username.toLowerCase() === trimmedUser.toLowerCase());
 
     if (!found) {
       return { success: false, message: 'ไม่พบบัญชีผู้ใช้นี้ในระบบ กรุณาตรวจสอบชื่อผู้ใช้หรือลงทะเบียนใหม่' };
+    }
+
+    // Strict Password Verification
+    const expectedPassword = found.password || '123456';
+    if (trimmedPass !== expectedPassword) {
+      return { success: false, message: 'รหัสผ่าน (Password) ไม่ถูกต้อง กรุณากรอกรหัสผ่านที่ถูกต้อง' };
     }
 
     if (found.status === 'pending') {
@@ -524,6 +534,7 @@ export class StorageService {
       email: userData.email || `${userData.username}@krabiedu.go.th`,
       department: userData.department,
       position: userData.position || 'ครูผู้สอน',
+      password: userData.password?.trim() || '123456',
       avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(userData.username)}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

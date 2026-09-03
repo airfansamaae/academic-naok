@@ -328,6 +328,40 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
     }
   };
 
+  // Preview local file before upload
+  const handlePreviewLocalFile = async (file: File) => {
+    const dataUrl = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+    let previewType: UploadedFile['previewType'] = 'other';
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith('.pdf')) previewType = 'pdf';
+    else if (lower.match(/\.(png|jpg|jpeg|gif|webp|svg)$/)) previewType = 'image';
+    else if (lower.match(/\.(xlsx|xls|csv)$/)) previewType = 'spreadsheet';
+    else if (lower.match(/\.(pptx|ppt)$/)) previewType = 'presentation';
+    else if (lower.match(/\.(docx|doc)$/)) previewType = 'doc';
+
+    const tempUploadedFile: UploadedFile = {
+      id: 'temp_' + Date.now(),
+      name: file.name,
+      size: file.size,
+      mimeType: file.type || 'application/octet-stream',
+      driveFileId: 'temp_preview',
+      driveFolderId: '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-',
+      downloadUrl: '',
+      viewUrl: '',
+      previewType,
+      previewContent: `[ไฟล์ที่เลือกเตรียมส่ง]: ${file.name}`,
+      fileDataUrl: dataUrl,
+      uploadedAt: new Date().toISOString(),
+    };
+
+    onOpenFilePreview(tempUploadedFile, submissionTopicTitle || file.name, currentUser?.fullName);
+  };
+
   // 8. Handle Member Multi-file Submission
   const handleMemberSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -679,24 +713,6 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                         {isAdmin ? (
                           /* ADMIN CONTROLS: View Submissions + Edit Assignment + Delete Assignment */
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            {assignmentSubs.length > 0 && (
-                              <button
-                                onClick={() => {
-                                  const firstSubWithFile = assignmentSubs.find(s => s.files && s.files.length > 0);
-                                  if (firstSubWithFile && firstSubWithFile.files[0]) {
-                                    onOpenFilePreview(firstSubWithFile.files[0], assignment.title, firstSubWithFile.memberName);
-                                  } else {
-                                    setMemberStatusModalAssignment(assignment);
-                                  }
-                                }}
-                                title="ดูตัวอย่างไฟล์งานที่ส่ง (Instant Preview)"
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition-all cursor-pointer shadow-2xs"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-purple-600" />
-                                <span>ดูตัวอย่างงาน ({assignmentSubs.length})</span>
-                              </button>
-                            )}
-
                             <button
                               onClick={() => setMemberStatusModalAssignment(assignment)}
                               title="ดูสถานะการส่งและตรวจงานของสมาชิก"
@@ -728,17 +744,6 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                           <>
                             {isMemberSubmitted ? (
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                {mySubmission.files && mySubmission.files.length > 0 && (
-                                  <button
-                                    onClick={() => onOpenFilePreview(mySubmission.files[0], assignment.title, currentUser?.fullName)}
-                                    title="ดูตัวอย่างไฟล์งานที่ส่ง"
-                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition-colors cursor-pointer shadow-2xs"
-                                  >
-                                    <Eye className="w-3.5 h-3.5 text-purple-600" />
-                                    <span>ดูตัวอย่างไฟล์ ({mySubmission.files.length})</span>
-                                  </button>
-                                )}
-
                                 <button
                                   onClick={() => setPeerSubmissionsModalAssignment(assignment)}
                                   title="ดูสถานะการส่งและไฟล์งาน"
@@ -1329,15 +1334,28 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                 </div>
 
                 {selectedFiles.length > 0 && (
-                  <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                  <div className="mt-2 space-y-1.5 max-h-36 overflow-y-auto">
                     {selectedFiles.map((f, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50 border border-slate-200">
-                        <span className="truncate max-w-[280px] font-medium text-slate-700">
-                          {f.name}
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {(f.size / (1024 * 1024)).toFixed(2)} MB
-                        </span>
+                      <div key={idx} className="flex items-center justify-between text-xs p-2 rounded-xl bg-slate-50 border border-purple-200/70">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                          <span className="truncate max-w-[220px] sm:max-w-xs font-medium text-slate-700">
+                            {f.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[10px] text-slate-400">
+                            {(f.size / (1024 * 1024)).toFixed(2)} MB
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handlePreviewLocalFile(f)}
+                            title="ดูตัวอย่างไฟล์นี้ก่อนส่ง"
+                            className="p-1 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

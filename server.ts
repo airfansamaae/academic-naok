@@ -1,14 +1,17 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// In-memory persistent database for server-wide real-time sync across all browsers
+const DB_FILE_PATH = path.join(process.cwd(), 'academic_db.json');
+
+// Persistent database store for server-wide real-time sync across all browsers & D1
 let serverDataVersion = Date.now();
-const serverDataStore: Record<string, any[]> = {
+let serverDataStore: Record<string, any[]> = {
   users: [],
   assignments: [],
   submissions: [],
@@ -18,6 +21,36 @@ const serverDataStore: Record<string, any[]> = {
   audit_logs: [],
 };
 let serverSchoolProfile: any = null;
+
+// Load persisted data if file exists
+try {
+  if (fs.existsSync(DB_FILE_PATH)) {
+    const raw = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed.data) serverDataStore = { ...serverDataStore, ...parsed.data };
+    if (parsed.school) serverSchoolProfile = parsed.school;
+    if (parsed.version) serverDataVersion = parsed.version;
+  }
+} catch (e) {
+  console.warn('Could not read academic_db.json, starting fresh', e);
+}
+
+const saveDbToDisk = () => {
+  try {
+    fs.writeFileSync(
+      DB_FILE_PATH,
+      JSON.stringify({
+        version: serverDataVersion,
+        data: serverDataStore,
+        school: serverSchoolProfile,
+        savedAt: new Date().toISOString(),
+      }),
+      'utf-8'
+    );
+  } catch (err) {
+    console.error('Failed to save to academic_db.json:', err);
+  }
+};
 
 async function startServer() {
   const app = express();
@@ -194,6 +227,8 @@ async function startServer() {
     if (school) {
       serverSchoolProfile = school;
     }
+
+    saveDbToDisk();
 
     broadcastSync('DATA_CHANGED', { table, action, dataId: data?.id });
 

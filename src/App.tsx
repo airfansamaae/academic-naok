@@ -57,6 +57,7 @@ import {
 } from './types';
 import { storage } from './services/storageService';
 import { GAS_CODE_SNIPPET, D1_SCHEMA_SQL } from './services/gasCodeGenerator';
+import { openAuthenticFileInNewTab } from './utils/fileViewer';
 import Swal from 'sweetalert2';
 
 export default function App() {
@@ -202,18 +203,13 @@ export default function App() {
     };
   }, []);
 
-  // Open Preview Modal
+  // Open Preview Modal -> Opens authentic attached file in a full-screen new tab
   const handleOpenFilePreview = (
     file: UploadedFile,
     assignmentTitle?: string,
     uploaderName?: string
   ) => {
-    setPreviewModalData({
-      isOpen: true,
-      file,
-      assignmentTitle,
-      uploaderName,
-    });
+    openAuthenticFileInNewTab(file, assignmentTitle, uploaderName);
   };
 
   // Handle Logout
@@ -239,21 +235,6 @@ export default function App() {
           showConfirmButton: false,
         });
       }
-    });
-  };
-
-  // Handle Switch User Profile (Quick demo switch between Admin and Teachers)
-  const handleSwitchUser = (user: User) => {
-    storage.setCurrentUser(user);
-    setCurrentUser(user);
-    Swal.fire({
-      icon: 'success',
-      title: `สลับผู้ใช้เป็น "${user.fullName}"`,
-      text: `สิทธิ์: ${user.role === 'admin' ? 'Master Admin' : 'สมาชิก (Member)'}`,
-      toast: true,
-      position: 'top-end',
-      timer: 2000,
-      showConfirmButton: false,
     });
   };
 
@@ -291,7 +272,6 @@ export default function App() {
         onOpenLoginModal={() => setIsAuthModalOpen(true)}
         onOpenAuth={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
-        onSwitchUser={handleSwitchUser}
         onSelectTab={setActiveTab}
         onNavigate={setActiveTab}
       />
