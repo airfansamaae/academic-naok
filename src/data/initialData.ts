@@ -410,17 +410,5 @@ export const INITIAL_ANNOUNCEMENTS: Announcement[] = [
     isUrgent: false,
     createdAt: '2026-08-28T09:00:00Z',
     updatedAt: '2026-08-28T09:00:00Z',
-  },
-  {
-    id: 'ann_03',
-    title: 'แจ้งเตือนกำหนดส่ง: แบบรายงานผลการประเมินตนเอง SAR ประจำปี',
-    content: 'กำหนดส่งรายงาน SAR ภายในวันที่ 5 กันยายน 2569 สามารถดาวน์โหลดแบบฟอร์มได้ที่ศูนย์เอกสาร',
-    type: 'deadline', // RED
-    date: '2026-09-05',
-    assignmentId: 'assign_02',
-    authorName: 'ฝ่ายประกันคุณภาพ',
-    isUrgent: false,
-    createdAt: '2026-08-25T10:00:00Z',
-    updatedAt: '2026-08-25T10:00:00Z',
   }
 ];

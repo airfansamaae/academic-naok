@@ -203,8 +203,19 @@ export class StorageService {
     if (!localStorage.getItem(STORAGE_KEYS.DOCUMENTS)) {
       localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(INITIAL_DOCUMENTS));
     }
-    if (!localStorage.getItem(STORAGE_KEYS.ANNOUNCEMENTS)) {
+    const storedAnn = localStorage.getItem(STORAGE_KEYS.ANNOUNCEMENTS);
+    if (!storedAnn) {
       localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(INITIAL_ANNOUNCEMENTS));
+    } else {
+      try {
+        const parsed = JSON.parse(storedAnn);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((a: any) => a.id !== 'ann_03' && !a.title?.includes('SAR ประจำปี'));
+          localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(cleaned));
+        }
+      } catch {
+        localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(INITIAL_ANNOUNCEMENTS));
+      }
     }
     const storedSchool = localStorage.getItem(STORAGE_KEYS.SCHOOL);
     if (!storedSchool) {
@@ -222,11 +233,13 @@ export class StorageService {
         localStorage.setItem(STORAGE_KEYS.SCHOOL, JSON.stringify(INITIAL_SCHOOL_PROFILE));
       }
     }
-    // Strict Login Security: Always require explicit Login. Purge legacy auto-login records from localStorage
+    // Strict Login Security: Always require explicit Login. Purge all stored sessions on fresh load
     try {
+      sessionStorage.removeItem('academic_auth_session');
       localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
       localStorage.removeItem('academic_current_user');
       localStorage.removeItem('academic_current_user_v1');
+      localStorage.removeItem('academic_auth_session');
     } catch {}
   }
 
@@ -375,8 +388,11 @@ export class StorageService {
             localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(remoteData.documents));
             changed = true;
           }
-          if (Array.isArray(remoteData.announcements) && remoteData.announcements.length > 0) {
-            localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(remoteData.announcements));
+          if (Array.isArray(remoteData.announcements)) {
+            const sanitized = remoteData.announcements.filter(
+              (a: any) => a.id !== 'ann_03' && !a.title?.includes('SAR ประจำปี')
+            );
+            localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(sanitized));
             changed = true;
           }
           if (json.school && json.school.name) {
@@ -650,7 +666,7 @@ export class StorageService {
         updatedUser = updated;
         const current = this.getCurrentUser();
         if (current && current.id === userId) {
-          localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(updated));
+          sessionStorage.setItem('academic_auth_session', JSON.stringify(updated));
         }
         return updated;
       }
@@ -985,7 +1001,8 @@ export class StorageService {
   // --- Announcements ---
   public getAnnouncements(): Announcement[] {
     const data = localStorage.getItem(STORAGE_KEYS.ANNOUNCEMENTS);
-    return data ? JSON.parse(data) : INITIAL_ANNOUNCEMENTS;
+    const list: Announcement[] = data ? JSON.parse(data) : INITIAL_ANNOUNCEMENTS;
+    return list.filter((a: any) => a.id !== 'ann_03' && !a.title?.includes('SAR ประจำปี'));
   }
 
   public createAnnouncement(data: {
@@ -1040,10 +1057,13 @@ export class StorageService {
     this.notify();
   }
 
-  public deleteAnnouncement(id: string) {
-    const announcements = this.getAnnouncements().filter(a => a.id !== id);
+  public deleteAnnouncement(id: string, title?: string) {
+    const announcements = this.getAnnouncements().filter(
+      a => a.id !== id && (!title || a.title !== title)
+    );
     localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(announcements));
-    this.broadcastChange('announcements', 'delete', { id });
+    this.broadcastChange('announcements', 'delete', { id, title });
+    this.broadcastChange('announcements', 'setList', announcements);
     this.notify();
   }
 

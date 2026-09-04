@@ -91,9 +91,10 @@ export default function App() {
     file: null,
   });
 
-  // Load and refresh state helper
+  // Load and refresh state helper (strictly prevents auto-login on data refresh)
   const refreshAllData = () => {
-    setCurrentUser(storage.getCurrentUser());
+    const activeUser = storage.getCurrentUser();
+    setCurrentUser((prev) => (prev ? activeUser : null));
     setSchool(storage.getSchoolProfile());
     setAssignments(storage.getAssignments());
     setSubmissions(storage.getSubmissions());

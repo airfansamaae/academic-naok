@@ -176,6 +176,11 @@ async function startServer() {
 
   // Get all data collection
   app.get('/api/data/all', (req, res) => {
+    if (Array.isArray(serverDataStore.announcements)) {
+      serverDataStore.announcements = serverDataStore.announcements.filter(
+        (a) => a.id !== 'ann_03' && !a.title?.includes('SAR ประจำปี')
+      );
+    }
     res.json({
       version: serverDataVersion,
       data: serverDataStore,
@@ -194,7 +199,11 @@ async function startServer() {
       if (fullState.assignments) serverDataStore.assignments = fullState.assignments;
       if (fullState.submissions) serverDataStore.submissions = fullState.submissions;
       if (fullState.documents) serverDataStore.documents = fullState.documents;
-      if (fullState.announcements) serverDataStore.announcements = fullState.announcements;
+      if (fullState.announcements) {
+        serverDataStore.announcements = fullState.announcements.filter(
+          (a: any) => a.id !== 'ann_03' && !a.title?.includes('SAR ประจำปี')
+        );
+      }
       if (fullState.lunch_menus) serverDataStore.lunch_menus = fullState.lunch_menus;
       if (fullState.audit_logs) serverDataStore.audit_logs = fullState.audit_logs;
       if (fullState.school) serverSchoolProfile = fullState.school;
@@ -215,12 +224,18 @@ async function startServer() {
           list.unshift(data);
         }
       } else if (action === 'delete') {
-        const idx = list.findIndex((item) => item.id === data.id);
+        const idx = list.findIndex((item) => item.id === data.id || (data.title && item.title === data.title));
         if (idx >= 0) {
           list.splice(idx, 1);
         }
+        if (table === 'assignments') {
+          serverDataStore.submissions = (serverDataStore.submissions || []).filter((s) => s.assignmentId !== data.id);
+          serverDataStore.announcements = (serverDataStore.announcements || []).filter((a) => a.assignmentId !== data.id);
+        }
       } else if (action === 'setList') {
-        serverDataStore[table] = Array.isArray(data) ? data : [];
+        serverDataStore[table] = Array.isArray(data) 
+          ? data.filter((a: any) => a.id !== 'ann_03' && !a.title?.includes('SAR ประจำปี'))
+          : [];
       }
     }
 

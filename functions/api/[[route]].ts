@@ -148,6 +148,36 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         console.warn('Failed reading from app_state:', err);
       }
 
+      // Check if relational announcements table exists in D1 and reconcile
+      try {
+        const annResults = await env.DB.prepare(`SELECT * FROM announcements`).all();
+        if (annResults?.results && annResults.results.length > 0) {
+          dataStore.announcements = annResults.results.map((r: any) => ({
+            id: r.id,
+            title: r.title,
+            content: r.content,
+            type: r.type || 'general',
+            category: r.category,
+            date: r.date,
+            dateStart: r.dateStart || r.date,
+            dateEnd: r.dateEnd || r.date,
+            assignmentId: r.assignmentId || r.assignment_id,
+            authorName: r.authorName || r.author || 'ฝ่ายวิชาการ',
+            isUrgent: r.type === 'deadline' || r.isUrgent === 1,
+            createdAt: r.createdAt || r.created_at,
+          }));
+        }
+      } catch {
+        // Relational table might not exist; dataStore.announcements from app_state is preserved
+      }
+
+      // Purge any deleted SAR announcement from returning payload
+      if (Array.isArray(dataStore.announcements)) {
+        dataStore.announcements = dataStore.announcements.filter(
+          (a) => a.id !== 'ann_03' && !a.title?.includes('SAR ประจำปี')
+        );
+      }
+
       return new Response(
         JSON.stringify({
           version: currentVersion,
@@ -214,7 +244,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           }
 
           if (action === 'setList' && Array.isArray(data)) {
-            currentList = data;
+            currentList = table === 'announcements' 
+              ? data.filter((item: any) => item.id !== 'ann_03' && !item.title?.includes('SAR ประจำปี'))
+              : data;
           } else if (action === 'insert') {
             const idx = currentList.findIndex((item) => item.id === data.id);
             if (idx >= 0) {
@@ -230,14 +262,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
               currentList.unshift(data);
             }
           } else if (action === 'delete') {
-            currentList = currentList.filter((item) => item.id !== data.id);
+            currentList = currentList.filter(
+              (item) => item.id !== data.id && (!data.title || item.title !== data.title)
+            );
+            if (table === 'announcements') {
+              currentList = currentList.filter((item) => item.id !== 'ann_03' && !item.title?.includes('SAR ประจำปี'));
+            }
             // Also attempt direct SQL delete on table if individual relational table exists in D1
             try {
               if (table && data && data.id) {
-                await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(data.id).run();
+                await env.DB.prepare(`DELETE FROM ${table} WHERE id = ? OR (title IS NOT NULL AND title = ?)`).bind(data.id, data.title || data.id).run();
+                if (table === 'announcements') {
+                  await env.DB.prepare(`DELETE FROM announcements WHERE title LIKE '%SAR ประจำปี%' OR id = 'ann_03'`).run();
+                }
                 if (table === 'assignments') {
                   // Cascade delete submissions related to this assignment
                   await env.DB.prepare(`DELETE FROM submissions WHERE assignmentId = ?`).bind(data.id).run();
+                  await env.DB.prepare(`DELETE FROM announcements WHERE assignment_id = ? OR assignmentId = ?`).bind(data.id, data.id).run();
                 }
               }
             } catch {

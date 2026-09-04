@@ -303,7 +303,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
       cancelButtonText: 'ยกเลิก',
     }).then((result) => {
       if (result.isConfirmed) {
-        storage.deleteAnnouncement(ann.id);
+        storage.deleteAnnouncement(ann.id, ann.title);
         Swal.fire({
           icon: 'success',
           title: 'ลบสำเร็จ',
