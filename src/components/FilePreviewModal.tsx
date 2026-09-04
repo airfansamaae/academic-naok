@@ -442,20 +442,33 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           uint8[i] = raw.charCodeAt(i);
         }
 
+        let isDone = false;
+        const safetyTimeout = setTimeout(() => {
+          if (!isDone) {
+            isDone = true;
+            console.warn('Docx modal render timed out (6s)');
+            setDocxRenderLoading(false);
+            setDocxRenderError(true);
+          }
+        }, 6000);
+
         docxContainerRef.current.innerHTML = '';
         renderAsync(uint8.buffer, docxContainerRef.current, undefined, {
           className: 'docx',
           inWrapper: true,
           ignoreWidth: false,
           ignoreHeight: false,
-          ignoreFonts: false,
+          ignoreFonts: true,
           breakPages: true,
           useBase64URL: true,
           renderChanges: false,
           renderHeaders: true,
           renderFooters: true,
-          experimental: true
+          experimental: false
         }).then(() => {
+          if (isDone) return;
+          isDone = true;
+          clearTimeout(safetyTimeout);
           setDocxRenderLoading(false);
           if (docxContainerRef.current) {
             paginateModalDocxContainer(docxContainerRef.current, file.name, (count) => {
@@ -463,6 +476,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             });
           }
         }).catch((err) => {
+          if (isDone) return;
+          isDone = true;
+          clearTimeout(safetyTimeout);
           console.warn('docx-preview renderAsync failed:', err);
           setDocxRenderLoading(false);
           setDocxRenderError(true);

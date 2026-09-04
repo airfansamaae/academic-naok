@@ -383,11 +383,11 @@ export function openAuthenticFileInNewTab(
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   
-  <!-- Docx-Preview & JSZip for genuine client-side Word document rendering -->
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.3/dist/docx-preview.min.js"></script>
+  <!-- High-speed local vendor assets with instant CDN failover for reliable Word/Excel rendering -->
+  <script src="/api/vendor/jszip.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';"></script>
+  <script src="/api/vendor/docx-preview.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/docx-preview@0.4.0/dist/docx-preview.js';"></script>
   <!-- SheetJS for genuine client-side Excel spreadsheet rendering -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="/api/vendor/xlsx.full.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -775,6 +775,9 @@ export function openAuthenticFileInNewTab(
     var downloadUrl = ${JSON.stringify(file.downloadUrl || '')};
     var fileName = ${JSON.stringify(file.name || 'document')};
     var mimeType = ${JSON.stringify(accurateMime)};
+    var previewContent = ${JSON.stringify(file.previewContent || '')};
+    var submitterName = ${JSON.stringify(submitterName || '')};
+    var sizeText = ${JSON.stringify(sizeText || '')};
 
     function getStandardOfficeMime(name, rawMime) {
       var ext = (name || '').split('.').pop().toLowerCase();
@@ -970,13 +973,98 @@ export function openAuthenticFileInNewTab(
       }
     }
 
+    // Fallback decorator to ensure A4 styling, running headers, footers & navigator if DOM pagination encounters anomalies
+    function fallbackPaginateDocxDOM(containerEl, docTitle) {
+      var wrapper = containerEl.querySelector('.docx-wrapper') || containerEl;
+      var sections = Array.from(wrapper.querySelectorAll('section.docx'));
+      if (sections.length === 0) {
+        sections = [wrapper];
+      }
+      var total = sections.length;
+      sections.forEach(function(sec, idx) {
+        var pNum = idx + 1;
+        sec.classList.add('a4-page-sheet');
+        sec.id = 'a4-page-' + pNum;
+        sec.setAttribute('data-page-no', pNum + ' / ' + total);
+
+        if (!sec.querySelector('.a4-page-header-bar')) {
+          var hBar = document.createElement('div');
+          hBar.className = 'a4-page-header-bar';
+          hBar.innerHTML = '<span class="a4-page-header-docname">' + escapeHtml(docTitle || 'เอกสารต้นฉบับ') + '</span>' +
+            '<span class="a4-page-badge">หน้า ' + pNum + ' จาก ' + total + ' (ขนาด A4)</span>';
+          sec.insertBefore(hBar, sec.firstChild);
+        }
+
+        if (!sec.querySelector('.a4-page-footer-bar')) {
+          var fBar = document.createElement('div');
+          fBar.className = 'a4-page-footer-bar';
+          fBar.innerHTML = '<span class="a4-footer-sys">ระบบงานวิชาการ • กระทรวงศึกษาธิการ</span>' +
+            '<span class="a4-footer-page-num">— หน้าที่ ' + pNum + ' —</span>';
+          sec.appendChild(fBar);
+        }
+
+        if (idx < total - 1) {
+          var div = document.createElement('div');
+          div.className = 'a4-page-divider';
+          div.innerHTML = '<div class="a4-divider-line"></div>' +
+            '<div class="a4-divider-badge">' +
+              '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>' +
+              '<span>จบหน้ากระดาษที่ ' + pNum + ' (ขนาด A4) — ขึ้นหน้ากระดาษที่ ' + (pNum + 1) + '</span>' +
+            '</div>' +
+            '<div class="a4-divider-line"></div>';
+          if (sec.nextSibling) {
+            wrapper.insertBefore(div, sec.nextSibling);
+          } else {
+            wrapper.appendChild(div);
+          }
+        }
+      });
+      setupStickyPageNavigator(total);
+    }
+
+    // Direct authentic text extractor from Word XML (works instantly via JSZip)
+    function tryExtractDocxText(bytesData, callback) {
+      if (!window.JSZip || !bytesData) {
+        callback(null);
+        return;
+      }
+      try {
+        window.JSZip.loadAsync(bytesData.buffer).then(function(zip) {
+          var docFile = zip.file('word/document.xml');
+          if (!docFile) {
+            callback(null);
+            return;
+          }
+          docFile.async('text').then(function(xml) {
+            var formatted = xml
+              .replace(/<w:tr[^>]*>/g, '\n[แถวตาราง] ')
+              .replace(/<w:p[^>]*>/g, '\n')
+              .replace(/<w:tab[^>]*>/g, '\t')
+              .replace(/<[^>]+>/g, '')
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&apos;/g, "'")
+              .replace(/\n\s*\n\s*\n/g, '\n\n')
+              .trim();
+            callback(formatted);
+          }).catch(function() { callback(null); });
+        }).catch(function() { callback(null); });
+      } catch (e) {
+        callback(null);
+      }
+    }
+
     // A4 Pagination Engine for docx-preview DOM
     function paginateDocxContainer(container, docName) {
       var wrapper = container.querySelector('.docx-wrapper') || container;
       var sections = Array.from(wrapper.querySelectorAll('section.docx'));
-      if (sections.length === 0) return;
+      if (sections.length === 0) {
+        sections = [wrapper];
+      }
 
-      var PAGE_MAX_H = 920; // Printable content budget per A4 page in px
+      var PAGE_MAX_H = 880; // Printable content budget per A4 page in px
       var pagesData = [];
 
       sections.forEach(function(sec) {
@@ -993,7 +1081,6 @@ export function openAuthenticFileInNewTab(
         }
 
         children.forEach(function(node) {
-          // Check for hard page break markers
           var isBreak = (node.classList && (node.classList.contains('docx-page-break') || node.classList.contains('docx-break'))) ||
                         (node.style && (node.style.pageBreakBefore === 'always' || node.style.pageBreakAfter === 'always')) ||
                         (node.querySelector && node.querySelector('.docx-page-break'));
@@ -1005,7 +1092,6 @@ export function openAuthenticFileInNewTab(
 
           var nodeH = node.offsetHeight || 30;
           if (curH + nodeH > PAGE_MAX_H && curPage.length > 0) {
-            // Check if tall table can have rows split across A4 sheets
             if (node.tagName === 'TABLE') {
               var rows = Array.from(node.querySelectorAll('tr'));
               if (rows.length > 1) {
@@ -1022,7 +1108,7 @@ export function openAuthenticFileInNewTab(
 
                 rows.forEach(function(r) {
                   if (thead && r.parentElement === thead) return;
-                  var rh = r.offsetHeight || 30;
+                  var rh = r.offsetHeight || 28;
                   if (curH + rh <= PAGE_MAX_H) {
                     tb1.appendChild(r.cloneNode(true));
                     curH += rh;
@@ -1037,7 +1123,7 @@ export function openAuthenticFileInNewTab(
                 flushPage();
                 if (tb2.children.length > 0) {
                   curPage.push(t2);
-                  curH = tb2.offsetHeight || 120;
+                  curH = 120;
                 }
                 return;
               }
@@ -1053,7 +1139,10 @@ export function openAuthenticFileInNewTab(
         flushPage();
       });
 
-      if (pagesData.length === 0) return;
+      if (pagesData.length === 0) {
+        fallbackPaginateDocxDOM(container, docName);
+        return;
+      }
 
       var totalPages = pagesData.length;
       wrapper.innerHTML = '';
@@ -1065,14 +1154,12 @@ export function openAuthenticFileInNewTab(
         pageSheet.id = 'a4-page-' + pNum;
         pageSheet.setAttribute('data-page-no', pNum + ' / ' + totalPages);
 
-        // Authentic Header Bar
         var headerEl = document.createElement('div');
         headerEl.className = 'a4-page-header-bar';
         headerEl.innerHTML = '<span class="a4-page-header-docname">' + escapeHtml(docName || 'เอกสารต้นฉบับ') + '</span>' +
           '<span class="a4-page-badge">หน้า ' + pNum + ' จาก ' + totalPages + ' (ขนาด A4)</span>';
         pageSheet.appendChild(headerEl);
 
-        // Content Box
         var contentBox = document.createElement('div');
         contentBox.className = 'a4-page-content-box';
         pageNodes.forEach(function(node) {
@@ -1080,7 +1167,6 @@ export function openAuthenticFileInNewTab(
         });
         pageSheet.appendChild(contentBox);
 
-        // Authentic Footer Bar
         var footerEl = document.createElement('div');
         footerEl.className = 'a4-page-footer-bar';
         footerEl.innerHTML = '<span class="a4-footer-sys">ระบบงานวิชาการ • กระทรวงศึกษาธิการ</span>' +
@@ -1089,7 +1175,6 @@ export function openAuthenticFileInNewTab(
 
         wrapper.appendChild(pageSheet);
 
-        // Distinct A4 Page Separator Between Pages
         if (pIdx < totalPages - 1) {
           var divider = document.createElement('div');
           divider.className = 'a4-page-divider';
@@ -1224,52 +1309,117 @@ export function openAuthenticFileInNewTab(
         }
       };
 
+      var docPreviewContent = (typeof previewContent !== 'undefined' ? previewContent : '') || '';
+      var docFileName = (typeof fileName !== 'undefined' ? fileName : '') || 'document.docx';
+      var docSubmitter = (typeof submitterName !== 'undefined' ? submitterName : '') || '';
+      var docSize = (typeof sizeText !== 'undefined' ? sizeText : '') || '';
+
       if (!fileBase64) {
         if (loader) loader.style.display = 'none';
-        paginateFallbackDocx(previewContent, fileName, submitterName, sizeText);
+        paginateFallbackDocx(docPreviewContent, docFileName, docSubmitter, docSize);
         return;
       }
 
+      var bytes = null;
       try {
         var binaryString = atob(fileBase64);
-        var bytes = new Uint8Array(binaryString.length);
+        bytes = new Uint8Array(binaryString.length);
         for (var i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
+      } catch (err) {
+        console.warn('atob base64 decoding error:', err);
+      }
 
-        if (window.docx && window.docx.renderAsync) {
-          window.docx.renderAsync(bytes.buffer, container, null, {
+      if (!bytes || bytes.length === 0) {
+        if (loader) loader.style.display = 'none';
+        paginateFallbackDocx(docPreviewContent, docFileName, docSubmitter, docSize);
+        return;
+      }
+
+      function waitForDocxReady(callback, maxWaitMs) {
+        var start = Date.now();
+        var limit = maxWaitMs || 4000;
+        function check() {
+          if (window.docx && window.docx.renderAsync) {
+            callback(window.docx);
+          } else if (Date.now() - start < limit) {
+            setTimeout(check, 60);
+          } else {
+            callback(null);
+          }
+        }
+        check();
+      }
+
+      waitForDocxReady(function(docxLib) {
+        if (!docxLib) {
+          tryExtractDocxText(bytes, function(extractedText) {
+            if (loader) loader.style.display = 'none';
+            paginateFallbackDocx(extractedText || docPreviewContent, docFileName, docSubmitter, docSize);
+          });
+          return;
+        }
+
+        var rendered = false;
+        var renderTimer = setTimeout(function() {
+          if (!rendered) {
+            console.warn('Docx renderAsync timed out (6s), falling back to authentic text extraction');
+            rendered = true;
+            tryExtractDocxText(bytes, function(extractedText) {
+              if (loader) loader.style.display = 'none';
+              paginateFallbackDocx(extractedText || docPreviewContent, docFileName, docSubmitter, docSize);
+            });
+          }
+        }, 6000);
+
+        try {
+          docxLib.renderAsync(bytes.buffer, container, null, {
             className: 'docx',
             inWrapper: true,
             ignoreWidth: false,
             ignoreHeight: false,
-            ignoreFonts: false,
+            ignoreFonts: true,
             breakPages: true,
             useBase64URL: true,
             renderChanges: false,
             renderHeaders: true,
             renderFooters: true,
-            experimental: true
+            experimental: false
           }).then(function() {
+            if (rendered) return;
+            rendered = true;
+            clearTimeout(renderTimer);
             if (loader) loader.style.display = 'none';
             if (container) container.style.display = 'block';
 
-            // Transform raw docx-preview output into genuine A4 sheets with visible page dividers!
-            paginateDocxContainer(container, fileName);
+            try {
+              paginateDocxContainer(container, docFileName);
+            } catch (pErr) {
+              console.warn('Pagination post-processor error:', pErr);
+              fallbackPaginateDocxDOM(container, docFileName);
+            }
           }).catch(function(err) {
-            console.warn('Docx renderAsync failed:', err);
-            if (loader) loader.style.display = 'none';
-            paginateFallbackDocx(previewContent, fileName, submitterName, sizeText);
+            if (rendered) return;
+            rendered = true;
+            clearTimeout(renderTimer);
+            console.warn('Docx renderAsync rejected:', err);
+            tryExtractDocxText(bytes, function(extractedText) {
+              if (loader) loader.style.display = 'none';
+              paginateFallbackDocx(extractedText || docPreviewContent, docFileName, docSubmitter, docSize);
+            });
           });
-        } else {
-          if (loader) loader.style.display = 'none';
-          paginateFallbackDocx(previewContent, fileName, submitterName, sizeText);
+        } catch (callErr) {
+          if (rendered) return;
+          rendered = true;
+          clearTimeout(renderTimer);
+          console.warn('Docx renderAsync call exception:', callErr);
+          tryExtractDocxText(bytes, function(extractedText) {
+            if (loader) loader.style.display = 'none';
+            paginateFallbackDocx(extractedText || docPreviewContent, docFileName, docSubmitter, docSize);
+          });
         }
-      } catch (err) {
-        console.error('Docx parsing error:', err);
-        if (loader) loader.style.display = 'none';
-        paginateFallbackDocx(previewContent, fileName, submitterName, sizeText);
-      }
+      }, 4000);
     })();
     ` : ''}
 

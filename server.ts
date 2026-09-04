@@ -59,6 +59,20 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+  // High-speed local vendor assets for instant authentic preview rendering
+  app.get('/api/vendor/jszip.min.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.sendFile(path.join(process.cwd(), 'node_modules/jszip/dist/jszip.min.js'));
+  });
+  app.get('/api/vendor/docx-preview.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.sendFile(path.join(process.cwd(), 'node_modules/docx-preview/dist/docx-preview.js'));
+  });
+  app.get('/api/vendor/xlsx.full.min.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.sendFile(path.join(process.cwd(), 'node_modules/xlsx/dist/xlsx.full.min.js'));
+  });
+
   // SSE Clients list
   const sseClients: { id: string; res: express.Response }[] = [];
 
