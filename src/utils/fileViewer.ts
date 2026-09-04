@@ -189,21 +189,32 @@ export function openAuthenticFileInNewTab(
   let viewportHtml = '';
 
   if (isPdf) {
-    // PDF fallback when no binary blob or drive iframe: render clean authentic A4 document text
+    // PDF fallback when no binary blob or drive iframe: render clean authentic A4 document pages with dividers
     viewportHtml = `
       <div id="docxViewport">
-        <div class="docx-wrapper">
-          <section class="docx" style="background: #ffffff; color: #111827; width: 210mm; min-height: 297mm; max-width: calc(100vw - 32px); padding: 25.4mm 20mm; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-radius: 2px; box-sizing: border-box; font-family: 'TH Sarabun New', 'Sarabun', Tahoma, sans-serif;">
-            <div style="border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 24px;">
-              <h1 style="font-size: 18pt; font-weight: 700; color: #0f172a; margin: 0;">${esc(file.name)}</h1>
-              <div style="font-size: 12pt; color: #64748b; margin-top: 6px;">
-                ${submitterName ? 'ผู้จัดทำ: ' + esc(submitterName) + ' • ' : ''}ขนาดไฟล์: ${sizeText} • วันที่: ${new Date(file.uploadedAt).toLocaleDateString('th-TH')}
-              </div>
-            </div>
-            <div style="font-size: 14pt; line-height: 1.8; color: #1e293b; white-space: pre-wrap; font-family: 'TH Sarabun New', 'Sarabun', sans-serif;">
-${esc(file.previewContent || 'เอกสารต้นฉบับ')}
-            </div>
-          </section>
+        <!-- Sticky A4 Navigation Toolbar -->
+        <div id="docxToolbar" style="position: sticky; top: 12px; z-index: 50; background: rgba(15, 23, 42, 0.96); backdrop-filter: blur(12px); border: 1.5px solid rgba(255, 255, 255, 0.18); border-radius: 9999px; padding: 6px 18px; margin-bottom: 24px; display: flex; align-items: center; gap: 12px; box-shadow: 0 14px 30px -5px rgba(0,0,0,0.7); flex-wrap: wrap; justify-content: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+            <span id="docxPageCountText" style="font-size: 12px; color: #f1f5f9; font-weight: 700;">แสดงหน้าเอกสารขนาด A4</span>
+          </div>
+          <span style="color: #475569; margin: 0 2px;">|</span>
+          <div style="display: flex; align-items: center; gap: 4px;" id="docxPageNavWrapper">
+            <button class="btn secondary" id="docxPrevPageBtn" style="padding: 3px 9px; font-size: 11px; font-weight: 700;" title="หน้าก่อนหน้า">◀ ก่อนหน้า</button>
+            <div id="docxPagePillsContainer" style="display: flex; gap: 4px; max-width: 260px; overflow-x: auto;"></div>
+            <button class="btn secondary" id="docxNextPageBtn" style="padding: 3px 9px; font-size: 11px; font-weight: 700;" title="หน้าถัดไป">ถัดไป ▶</button>
+          </div>
+          <span style="color: #475569; margin: 0 2px;">|</span>
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <button class="btn secondary" id="docxZoomOutBtn" style="padding: 3px 8px; font-size: 12px;" title="ย่อขนาด">-</button>
+            <span id="docxZoomText" style="font-size: 11px; font-weight: 700; color: #f8fafc; min-width: 38px; text-align: center;">100%</span>
+            <button class="btn secondary" id="docxZoomInBtn" style="padding: 3px 8px; font-size: 12px;" title="ขยายขนาด">+</button>
+            <button class="btn secondary" id="docxFitWidthBtn" style="padding: 3px 8px; font-size: 11px;" title="ปรับพอดีจอ">พอดีจอ</button>
+          </div>
+        </div>
+
+        <div id="docxFallbackA4" style="width: 100%;">
+          <div class="docx-wrapper"></div>
         </div>
       </div>
     `;
@@ -222,24 +233,32 @@ ${esc(file.previewContent || 'เอกสารต้นฉบับ')}
   } else if (isDoc) {
     viewportHtml = `
       <div id="docxViewport">
-        <!-- Sticky Word Toolbar: Zoom and Authentic Page Count -->
-        <div id="docxToolbar" style="position: sticky; top: 12px; z-index: 50; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 9999px; padding: 6px 16px; margin-bottom: 28px; display: flex; align-items: center; gap: 10px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.6);">
-          <button class="btn secondary" id="docxZoomOutBtn" style="padding: 4px 10px; font-size: 13px;" title="ย่อขนาด">-</button>
-          <span id="docxZoomText" style="font-size: 12px; font-weight: 700; color: #f8fafc; min-width: 44px; text-align: center;">100%</span>
-          <button class="btn secondary" id="docxZoomInBtn" style="padding: 4px 10px; font-size: 13px;" title="ขยายขนาด">+</button>
-          <button class="btn secondary" id="docxZoomResetBtn" style="padding: 4px 10px; font-size: 12px;" title="ขนาด 100%">100%</button>
-          <button class="btn secondary" id="docxFitWidthBtn" style="padding: 4px 10px; font-size: 12px;" title="ปรับพอดีหน้าจอ">พอดีจอ</button>
+        <!-- Sticky Word Toolbar: Real-time Page Indicator & Navigation -->
+        <div id="docxToolbar" style="position: sticky; top: 12px; z-index: 50; background: rgba(15, 23, 42, 0.96); backdrop-filter: blur(12px); border: 1.5px solid rgba(255, 255, 255, 0.18); border-radius: 9999px; padding: 6px 18px; margin-bottom: 24px; display: flex; align-items: center; gap: 12px; box-shadow: 0 14px 30px -5px rgba(0,0,0,0.7); flex-wrap: wrap; justify-content: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+            <span id="docxPageCountText" style="font-size: 12px; color: #f1f5f9; font-weight: 700;">กำลังจัดหน้า A4 ตามต้นฉบับ...</span>
+          </div>
           <span style="color: #475569; margin: 0 2px;">|</span>
-          <span id="docxPageCountBadge" style="font-size: 12px; color: #93c5fd; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-            <span id="docxPageCountText">จัดหน้าเอกสาร A4 ต้นฉบับ (มีช่องว่างคั่นหน้าชัดเจน)</span>
-          </span>
+          <div style="display: flex; align-items: center; gap: 4px;" id="docxPageNavWrapper">
+            <button class="btn secondary" id="docxPrevPageBtn" style="padding: 3px 9px; font-size: 11px; font-weight: 700;" title="หน้าก่อนหน้า">◀ ก่อนหน้า</button>
+            <div id="docxPagePillsContainer" style="display: flex; gap: 4px; max-width: 260px; overflow-x: auto;"></div>
+            <button class="btn secondary" id="docxNextPageBtn" style="padding: 3px 9px; font-size: 11px; font-weight: 700;" title="หน้าถัดไป">ถัดไป ▶</button>
+          </div>
+          <span style="color: #475569; margin: 0 2px;">|</span>
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <button class="btn secondary" id="docxZoomOutBtn" style="padding: 3px 8px; font-size: 12px;" title="ย่อขนาด">-</button>
+            <span id="docxZoomText" style="font-size: 11px; font-weight: 700; color: #f8fafc; min-width: 38px; text-align: center;">100%</span>
+            <button class="btn secondary" id="docxZoomInBtn" style="padding: 3px 8px; font-size: 12px;" title="ขยายขนาด">+</button>
+            <button class="btn secondary" id="docxZoomResetBtn" style="padding: 3px 8px; font-size: 11px;" title="ขนาด 100%">100%</button>
+            <button class="btn secondary" id="docxFitWidthBtn" style="padding: 3px 8px; font-size: 11px;" title="ปรับพอดีหน้าจอ">พอดีจอ</button>
+          </div>
         </div>
 
         <div id="docxLoading" style="color: #cbd5e1; font-size: 14px; margin-top: 50px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
           <div class="spinner"></div>
           <span style="font-weight: 600; letter-spacing: 0.3px;">กำลังอ่านและจัดหน้าเอกสาร Word (.docx) ต้นฉบับจริง...</span>
-          <span style="font-size: 12px; color: #94a3b8;">ถอดรหัสเนื้อหา ขนาดหน้า A4 ตาราง และรูปแบบฟอนต์</span>
+          <span style="font-size: 12px; color: #94a3b8;">แบ่งหน้ากระดาษ A4 เสมือนจริง พร้อมเส้นและป้ายคั่นระหว่างหน้า</span>
         </div>
 
         <!-- Render container for docx-preview with authentic A4 pages -->
@@ -247,20 +266,7 @@ ${esc(file.previewContent || 'เอกสารต้นฉบับ')}
 
         <!-- Authentic fallback A4 paper sheet if binary decoding fallback is used -->
         <div id="docxFallbackA4" style="width: 100%; display: none; margin-top: 10px;">
-          <div class="docx-wrapper">
-            <section class="docx" style="background: #ffffff; color: #111827; width: 210mm; min-height: 297mm; max-width: calc(100vw - 32px); padding: 25.4mm 20mm; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-radius: 2px; box-sizing: border-box; font-family: 'TH Sarabun New', 'Sarabun', Tahoma, sans-serif; position: relative;">
-              <div style="border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 24px;">
-                <h1 style="font-size: 18pt; font-weight: 700; color: #0f172a; margin: 0;">${esc(file.name)}</h1>
-                <div style="font-size: 12pt; color: #64748b; margin-top: 6px;">
-                  ${submitterName ? 'ผู้จัดทำ: ' + esc(submitterName) + ' • ' : ''}ขนาดไฟล์: ${sizeText} • วันที่: ${new Date(file.uploadedAt).toLocaleDateString('th-TH')}
-                </div>
-              </div>
-
-              <div style="font-size: 14pt; line-height: 1.8; color: #1e293b; white-space: pre-wrap; font-family: 'TH Sarabun New', 'Sarabun', sans-serif;">
-${esc(file.previewContent || 'เอกสารแนบต้นฉบับในระบบ')}
-              </div>
-            </section>
-          </div>
+          <div class="docx-wrapper"></div>
         </div>
       </div>
     `;
@@ -536,12 +542,12 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
       to { transform: rotate(360deg); }
     }
 
-    /* Microsoft Word Authentic A4 Viewport & Styles */
+    /* Microsoft Word & Academic Document Authentic A4 Viewport & Styles */
     #docxViewport {
       height: 100%;
       overflow-y: auto;
-      background: #2b313d;
-      padding: 24px 16px 100px 16px;
+      background: #1e2430;
+      padding: 16px 12px 140px 12px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -554,61 +560,134 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
       display: flex !important;
       flex-direction: column !important;
       align-items: center !important;
-      gap: 36px !important;
+      gap: 0 !important;
+      width: 100% !important;
       transform-origin: top center;
       transition: transform 0.15s ease;
     }
 
     /* Individual Authentic A4 Paper Sheet */
     .docx-wrapper > section.docx,
-    section.docx {
+    section.docx,
+    .a4-page-sheet {
       background: #ffffff !important;
       color: #0f172a !important;
       width: 210mm !important;
       min-height: 297mm !important;
       max-width: calc(100vw - 32px) !important;
-      margin: 0 auto 36px auto !important;
-      box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.45), 0 0 1px 1px rgba(0, 0, 0, 0.1) !important;
+      margin: 0 auto !important;
+      box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.55), 0 0 1px 1px rgba(0, 0, 0, 0.15) !important;
       border-radius: 2px !important;
       position: relative !important;
       box-sizing: border-box !important;
+      padding: 20mm 22mm 18mm 22mm !important;
       font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', 'Angsana New', 'Cordia New', Tahoma, sans-serif !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: space-between !important;
     }
 
-    /* Visible Page Separation Banner Between Pages */
-    .docx-wrapper > section.docx:not(:last-child)::after {
-      content: "— จบหน้ากระดาษ (ขึ้นหน้าถัดไป) —";
-      position: absolute;
-      bottom: -28px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.6px;
-      color: #94a3b8;
-      background: #1e293b;
-      padding: 3px 18px;
-      border-radius: 9999px;
-      border: 1px solid #334155;
-      pointer-events: none;
-      white-space: nowrap;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+    /* Page Running Header Bar */
+    .a4-page-header-bar {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      border-bottom: 1.5px solid #cbd5e1 !important;
+      padding-bottom: 6px !important;
+      margin-bottom: 16px !important;
+      font-size: 11px !important;
+      color: #64748b !important;
+      font-family: 'Sarabun', sans-serif !important;
+      user-select: none !important;
+      flex-shrink: 0 !important;
+    }
+    .a4-page-header-docname {
+      font-weight: 600 !important;
+      color: #334155 !important;
+      max-width: 440px !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+    }
+    .a4-page-badge {
+      background: #ede9fe !important;
+      color: #6d28d9 !important;
+      border: 1px solid #ddd6fe !important;
+      padding: 2px 10px !important;
+      border-radius: 9999px !important;
+      font-weight: 700 !important;
+      font-size: 11px !important;
+      white-space: nowrap !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
     }
 
-    /* Page number pill in top-right of page */
-    .docx-wrapper > section.docx::before {
-      content: "หน้า " attr(data-page-no);
-      position: absolute;
-      top: 10px;
-      right: 16px;
-      font-size: 11px;
-      font-weight: 600;
-      color: #94a3b8;
-      background: #f8fafc;
-      padding: 2px 8px;
-      border-radius: 4px;
-      border: 1px solid #e2e8f0;
-      pointer-events: none;
+    /* Page Content Box */
+    .a4-page-content-box {
+      flex: 1 !important;
+      font-size: 15pt !important;
+      line-height: 1.6 !important;
+      color: #0f172a !important;
+      font-family: 'TH Sarabun New', 'Sarabun', sans-serif !important;
+    }
+
+    /* Page Running Footer Bar */
+    .a4-page-footer-bar {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      border-top: 1px solid #e2e8f0 !important;
+      padding-top: 8px !important;
+      margin-top: 16px !important;
+      font-size: 11px !important;
+      color: #94a3b8 !important;
+      font-family: 'Sarabun', sans-serif !important;
+      user-select: none !important;
+      flex-shrink: 0 !important;
+    }
+    .a4-footer-sys {
+      font-weight: 500 !important;
+      color: #64748b !important;
+    }
+    .a4-footer-page-num {
+      font-weight: 700 !important;
+      color: #475569 !important;
+      font-size: 12px !important;
+    }
+
+    /* Authentic A4 Page Divider Between Sheets */
+    .a4-page-divider {
+      width: 210mm !important;
+      max-width: calc(100vw - 32px) !important;
+      margin: 28px auto !important;
+      display: flex !important;
+      align-items: center !important;
+      gap: 12px !important;
+      user-select: none !important;
+      flex-shrink: 0 !important;
+    }
+    .a4-divider-line {
+      flex: 1 !important;
+      height: 2px !important;
+      background: linear-gradient(90deg, rgba(148, 163, 184, 0.1), rgba(148, 163, 184, 0.4), rgba(148, 163, 184, 0.1)) !important;
+      border-radius: 9999px !important;
+    }
+    .a4-divider-badge {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+      padding: 6px 20px !important;
+      border-radius: 9999px !important;
+      background: #0f172a !important;
+      border: 1.5px solid #334155 !important;
+      color: #cbd5e1 !important;
+      font-size: 11px !important;
+      font-weight: 700 !important;
+      letter-spacing: 0.4px !important;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45) !important;
+      white-space: nowrap !important;
+    }
+    .a4-divider-badge svg {
+      color: #38bdf8 !important;
     }
 
     .docx-wrapper p, .docx-wrapper span, .docx-wrapper div, .docx-wrapper h1, .docx-wrapper h2, .docx-wrapper h3, .docx-wrapper table {
@@ -794,6 +873,322 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
     var origBtn = document.getElementById('downloadOriginalBtn');
     if (origBtn) origBtn.addEventListener('click', triggerDownload);
 
+    // Helper to escape HTML safely in dynamic preview DOM
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Dynamic Sticky Page Navigator & Scroll Spy
+    function setupStickyPageNavigator(totalPages) {
+      var pillsContainer = document.getElementById('docxPagePillsContainer');
+      var prevBtn = document.getElementById('docxPrevPageBtn');
+      var nextBtn = document.getElementById('docxNextPageBtn');
+      var countText = document.getElementById('docxPageCountText');
+
+      if (countText) {
+        countText.innerHTML = 'กำลังดูหน้า <strong id="docxCurrentPageNum" style="color: #a855f7; font-size: 13px;">1</strong> จากทั้งหมด ' + totalPages + ' หน้า (ขนาด A4 มีที่คั่นชัดเจน)';
+      }
+
+      var curPg = 1;
+      function updateActiveIndicator(pg) {
+        curPg = Math.max(1, Math.min(totalPages, pg));
+        var numEl = document.getElementById('docxCurrentPageNum');
+        if (numEl) numEl.textContent = curPg;
+
+        if (pillsContainer) {
+          var allPills = pillsContainer.querySelectorAll('.docx-page-pill-btn');
+          allPills.forEach(function(pill, idx) {
+            if (idx + 1 === curPg) {
+              pill.style.background = '#7c3aed';
+              pill.style.color = '#ffffff';
+              pill.style.borderColor = '#9333ea';
+            } else {
+              pill.style.background = '#1f2937';
+              pill.style.color = '#cbd5e1';
+              pill.style.borderColor = '#374151';
+            }
+          });
+        }
+      }
+
+      function scrollToA4Page(pg) {
+        var targetNum = Math.max(1, Math.min(totalPages, pg));
+        var target = document.getElementById('a4-page-' + targetNum);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        updateActiveIndicator(targetNum);
+      }
+
+      if (pillsContainer) {
+        pillsContainer.innerHTML = '';
+        for (var i = 1; i <= totalPages; i++) {
+          (function(pg) {
+            var btn = document.createElement('button');
+            btn.className = 'btn secondary docx-page-pill-btn';
+            btn.id = 'docx-pill-btn-' + pg;
+            btn.style.padding = '3px 8px';
+            btn.style.fontSize = '11px';
+            btn.style.fontWeight = '700';
+            btn.textContent = 'หน้า ' + pg;
+            btn.onclick = function() {
+              scrollToA4Page(pg);
+            };
+            pillsContainer.appendChild(btn);
+          })(i);
+        }
+      }
+
+      if (prevBtn) {
+        prevBtn.onclick = function() { scrollToA4Page(curPg - 1); };
+      }
+      if (nextBtn) {
+        nextBtn.onclick = function() { scrollToA4Page(curPg + 1); };
+      }
+
+      updateActiveIndicator(1);
+
+      // Scroll spy on viewport to automatically track active A4 page
+      var viewport = document.getElementById('docxViewport');
+      if (viewport) {
+        viewport.addEventListener('scroll', function() {
+          var viewportCenter = viewport.scrollTop + (viewport.clientHeight * 0.35);
+          for (var p = totalPages; p >= 1; p--) {
+            var el = document.getElementById('a4-page-' + p);
+            if (el && el.offsetTop <= viewportCenter) {
+              updateActiveIndicator(p);
+              break;
+            }
+          }
+        });
+      }
+    }
+
+    // A4 Pagination Engine for docx-preview DOM
+    function paginateDocxContainer(container, docName) {
+      var wrapper = container.querySelector('.docx-wrapper') || container;
+      var sections = Array.from(wrapper.querySelectorAll('section.docx'));
+      if (sections.length === 0) return;
+
+      var PAGE_MAX_H = 920; // Printable content budget per A4 page in px
+      var pagesData = [];
+
+      sections.forEach(function(sec) {
+        var children = Array.from(sec.children);
+        var curPage = [];
+        var curH = 0;
+
+        function flushPage() {
+          if (curPage.length > 0) {
+            pagesData.push(curPage);
+            curPage = [];
+            curH = 0;
+          }
+        }
+
+        children.forEach(function(node) {
+          // Check for hard page break markers
+          var isBreak = (node.classList && (node.classList.contains('docx-page-break') || node.classList.contains('docx-break'))) ||
+                        (node.style && (node.style.pageBreakBefore === 'always' || node.style.pageBreakAfter === 'always')) ||
+                        (node.querySelector && node.querySelector('.docx-page-break'));
+
+          if (isBreak) {
+            flushPage();
+            return;
+          }
+
+          var nodeH = node.offsetHeight || 30;
+          if (curH + nodeH > PAGE_MAX_H && curPage.length > 0) {
+            // Check if tall table can have rows split across A4 sheets
+            if (node.tagName === 'TABLE') {
+              var rows = Array.from(node.querySelectorAll('tr'));
+              if (rows.length > 1) {
+                var thead = node.querySelector('thead');
+                var t1 = node.cloneNode(false);
+                if (thead) t1.appendChild(thead.cloneNode(true));
+                var tb1 = document.createElement('tbody');
+                t1.appendChild(tb1);
+
+                var t2 = node.cloneNode(false);
+                if (thead) t2.appendChild(thead.cloneNode(true));
+                var tb2 = document.createElement('tbody');
+                t2.appendChild(tb2);
+
+                rows.forEach(function(r) {
+                  if (thead && r.parentElement === thead) return;
+                  var rh = r.offsetHeight || 30;
+                  if (curH + rh <= PAGE_MAX_H) {
+                    tb1.appendChild(r.cloneNode(true));
+                    curH += rh;
+                  } else {
+                    tb2.appendChild(r.cloneNode(true));
+                  }
+                });
+
+                if (tb1.children.length > 0) {
+                  curPage.push(t1);
+                }
+                flushPage();
+                if (tb2.children.length > 0) {
+                  curPage.push(t2);
+                  curH = tb2.offsetHeight || 120;
+                }
+                return;
+              }
+            }
+
+            flushPage();
+          }
+
+          curPage.push(node);
+          curH += (nodeH > 0 ? nodeH : 30);
+        });
+
+        flushPage();
+      });
+
+      if (pagesData.length === 0) return;
+
+      var totalPages = pagesData.length;
+      wrapper.innerHTML = '';
+
+      pagesData.forEach(function(pageNodes, pIdx) {
+        var pNum = pIdx + 1;
+        var pageSheet = document.createElement('section');
+        pageSheet.className = 'docx a4-page-sheet';
+        pageSheet.id = 'a4-page-' + pNum;
+        pageSheet.setAttribute('data-page-no', pNum + ' / ' + totalPages);
+
+        // Authentic Header Bar
+        var headerEl = document.createElement('div');
+        headerEl.className = 'a4-page-header-bar';
+        headerEl.innerHTML = '<span class="a4-page-header-docname">' + escapeHtml(docName || 'เอกสารต้นฉบับ') + '</span>' +
+          '<span class="a4-page-badge">หน้า ' + pNum + ' จาก ' + totalPages + ' (ขนาด A4)</span>';
+        pageSheet.appendChild(headerEl);
+
+        // Content Box
+        var contentBox = document.createElement('div');
+        contentBox.className = 'a4-page-content-box';
+        pageNodes.forEach(function(node) {
+          contentBox.appendChild(node);
+        });
+        pageSheet.appendChild(contentBox);
+
+        // Authentic Footer Bar
+        var footerEl = document.createElement('div');
+        footerEl.className = 'a4-page-footer-bar';
+        footerEl.innerHTML = '<span class="a4-footer-sys">ระบบงานวิชาการ • กระทรวงศึกษาธิการ</span>' +
+          '<span class="a4-footer-page-num">— หน้าที่ ' + pNum + ' —</span>';
+        pageSheet.appendChild(footerEl);
+
+        wrapper.appendChild(pageSheet);
+
+        // Distinct A4 Page Separator Between Pages
+        if (pIdx < totalPages - 1) {
+          var divider = document.createElement('div');
+          divider.className = 'a4-page-divider';
+          divider.innerHTML = '<div class="a4-divider-line"></div>' +
+            '<div class="a4-divider-badge">' +
+              '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>' +
+              '<span>จบหน้ากระดาษที่ ' + pNum + ' (ขนาด A4) — ขึ้นหน้ากระดาษที่ ' + (pNum + 1) + '</span>' +
+            '</div>' +
+            '<div class="a4-divider-line"></div>';
+          wrapper.appendChild(divider);
+        }
+      });
+
+      setupStickyPageNavigator(totalPages);
+    }
+
+    // A4 Pagination Engine for Fallback Text / Non-binary Documents
+    function paginateFallbackDocx(text, docName, submitter, size) {
+      var fallback = document.getElementById('docxFallbackA4');
+      if (!fallback) return;
+
+      var lines = (text || 'เอกสารแนบต้นฉบับในระบบ').split('\n');
+      var LINES_PER_PAGE = 26;
+      var pages = [];
+      for (var i = 0; i < lines.length; i += LINES_PER_PAGE) {
+        pages.push(lines.slice(i, i + LINES_PER_PAGE).join('\n'));
+      }
+      if (pages.length === 0) pages.push('เอกสารแนบต้นฉบับในระบบ');
+
+      var totalPages = pages.length;
+      var wrapper = fallback.querySelector('.docx-wrapper') || fallback;
+      wrapper.innerHTML = '';
+
+      pages.forEach(function(pageText, pIdx) {
+        var pNum = pIdx + 1;
+        var sheet = document.createElement('section');
+        sheet.className = 'docx a4-page-sheet';
+        sheet.id = 'a4-page-' + pNum;
+        sheet.setAttribute('data-page-no', pNum + ' / ' + totalPages);
+
+        // Header
+        var header = document.createElement('div');
+        header.className = 'a4-page-header-bar';
+        header.innerHTML = '<span class="a4-page-header-docname">' + escapeHtml(docName || 'เอกสารต้นฉบับ') + '</span>' +
+          '<span class="a4-page-badge">หน้า ' + pNum + ' จาก ' + totalPages + ' (ขนาด A4)</span>';
+        sheet.appendChild(header);
+
+        // Content Box
+        var contentBox = document.createElement('div');
+        contentBox.className = 'a4-page-content-box';
+        if (pNum === 1) {
+          var titleArea = document.createElement('div');
+          titleArea.style.borderBottom = '2px solid #0f172a';
+          titleArea.style.paddingBottom = '12px';
+          titleArea.style.marginBottom = '20px';
+          titleArea.innerHTML = '<h1 style="font-size: 18pt; font-weight: 700; color: #0f172a; margin: 0;">' + escapeHtml(docName || 'เอกสารต้นฉบับ') + '</h1>' +
+            '<div style="font-size: 11pt; color: #64748b; margin-top: 4px;">' +
+              (submitter ? 'ผู้จัดทำ: ' + escapeHtml(submitter) + ' • ' : '') + 'ขนาดไฟล์: ' + (size || 'ไม่ระบุ') +
+            '</div>';
+          contentBox.appendChild(titleArea);
+        }
+
+        var textEl = document.createElement('div');
+        textEl.style.fontSize = '14pt';
+        textEl.style.lineHeight = '1.8';
+        textEl.style.color = '#1e293b';
+        textEl.style.whiteSpace = 'pre-wrap';
+        textEl.style.fontFamily = "'TH Sarabun New', 'Sarabun', sans-serif";
+        textEl.textContent = pageText;
+        contentBox.appendChild(textEl);
+        sheet.appendChild(contentBox);
+
+        // Footer
+        var footer = document.createElement('div');
+        footer.className = 'a4-page-footer-bar';
+        footer.innerHTML = '<span class="a4-footer-sys">ระบบงานวิชาการ • กระทรวงศึกษาธิการ</span>' +
+          '<span class="a4-footer-page-num">— หน้าที่ ' + pNum + ' —</span>';
+        sheet.appendChild(footer);
+
+        wrapper.appendChild(sheet);
+
+        // Distinct A4 Page Separator Between Pages
+        if (pIdx < totalPages - 1) {
+          var divider = document.createElement('div');
+          divider.className = 'a4-page-divider';
+          divider.innerHTML = '<div class="a4-divider-line"></div>' +
+            '<div class="a4-divider-badge">' +
+              '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>' +
+              '<span>จบหน้ากระดาษที่ ' + pNum + ' (ขนาด A4) — ขึ้นหน้ากระดาษที่ ' + (pNum + 1) + '</span>' +
+            '</div>' +
+            '<div class="a4-divider-line"></div>';
+          wrapper.appendChild(divider);
+        }
+      });
+
+      fallback.style.display = 'block';
+      setupStickyPageNavigator(totalPages);
+    }
+
     // Render Word Document (.docx) directly using docx-preview
     ${isDoc ? `
     (function renderDocx() {
@@ -807,7 +1202,7 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
       function applyZoom(zoom) {
         currentZoom = Math.max(50, Math.min(200, zoom));
         if (zoomText) zoomText.textContent = currentZoom + '%';
-        var wrapper = container.querySelector('.docx-wrapper');
+        var wrapper = (container && container.querySelector('.docx-wrapper')) || (fallback && fallback.querySelector('.docx-wrapper'));
         if (wrapper) {
           wrapper.style.transform = 'scale(' + (currentZoom / 100) + ')';
         }
@@ -831,7 +1226,7 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
 
       if (!fileBase64) {
         if (loader) loader.style.display = 'none';
-        if (fallback) fallback.style.display = 'block';
+        paginateFallbackDocx(previewContent, fileName, submitterName, sizeText);
         return;
       }
 
@@ -859,28 +1254,28 @@ ${esc(file.previewContent || 'เอกสารแนบต้นฉบับ�
             if (loader) loader.style.display = 'none';
             if (container) container.style.display = 'block';
 
-            var pages = container.querySelectorAll('.docx-wrapper > section.docx, section.docx');
-            var countBadge = document.getElementById('docxPageCountText');
-            if (countBadge && pages.length > 0) {
-              countBadge.textContent = 'แสดง ' + pages.length + ' หน้า (ขนาด A4 เสมือนจริง มีระยะเว้นคั่นหน้า)';
-            }
-            pages.forEach(function(pageEl, idx) {
-              pageEl.setAttribute('data-page-no', (idx + 1) + ' / ' + (pages.length || 1));
-            });
+            // Transform raw docx-preview output into genuine A4 sheets with visible page dividers!
+            paginateDocxContainer(container, fileName);
           }).catch(function(err) {
             console.warn('Docx renderAsync failed:', err);
             if (loader) loader.style.display = 'none';
-            if (fallback) fallback.style.display = 'block';
+            paginateFallbackDocx(previewContent, fileName, submitterName, sizeText);
           });
         } else {
           if (loader) loader.style.display = 'none';
-          if (fallback) fallback.style.display = 'block';
+          paginateFallbackDocx(previewContent, fileName, submitterName, sizeText);
         }
       } catch (err) {
         console.error('Docx parsing error:', err);
         if (loader) loader.style.display = 'none';
-        if (fallback) fallback.style.display = 'block';
+        paginateFallbackDocx(previewContent, fileName, submitterName, sizeText);
       }
+    })();
+    ` : ''}
+
+    ${isPdf && !blobUrl && !file.driveFileId ? `
+    (function renderPdfFallback() {
+      paginateFallbackDocx(previewContent, fileName, submitterName, sizeText);
     })();
     ` : ''}
 

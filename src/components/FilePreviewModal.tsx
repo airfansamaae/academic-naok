@@ -286,6 +286,146 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
   };
 
+  // Helper to paginate rendered docx-preview elements into authentic A4 pages with dividers
+  const paginateModalDocxContainer = (
+    container: HTMLElement,
+    docName: string,
+    onPagesReady: (count: number) => void
+  ) => {
+    const wrapper = (container.querySelector('.docx-wrapper') as HTMLElement) || container;
+    const sections = Array.from(wrapper.querySelectorAll('section.docx')) as HTMLElement[];
+    if (sections.length === 0) return;
+
+    const PAGE_MAX_H = 920;
+    const pagesData: HTMLElement[][] = [];
+
+    sections.forEach((sec) => {
+      const children = Array.from(sec.children) as HTMLElement[];
+      let curPage: HTMLElement[] = [];
+      let curH = 0;
+
+      const flushPage = () => {
+        if (curPage.length > 0) {
+          pagesData.push(curPage);
+          curPage = [];
+          curH = 0;
+        }
+      };
+
+      children.forEach((node) => {
+        const isBreak =
+          node.classList.contains('docx-page-break') ||
+          node.classList.contains('docx-break') ||
+          node.style.pageBreakBefore === 'always' ||
+          node.style.pageBreakAfter === 'always' ||
+          Boolean(node.querySelector && node.querySelector('.docx-page-break'));
+
+        if (isBreak) {
+          flushPage();
+          return;
+        }
+
+        const nodeH = node.offsetHeight || 30;
+        if (curH + nodeH > PAGE_MAX_H && curPage.length > 0) {
+          if (node.tagName === 'TABLE') {
+            const rows = Array.from(node.querySelectorAll('tr')) as HTMLTableRowElement[];
+            if (rows.length > 1) {
+              const thead = node.querySelector('thead');
+              const t1 = node.cloneNode(false) as HTMLTableElement;
+              if (thead) t1.appendChild(thead.cloneNode(true));
+              const tb1 = document.createElement('tbody');
+              t1.appendChild(tb1);
+
+              const t2 = node.cloneNode(false) as HTMLTableElement;
+              if (thead) t2.appendChild(thead.cloneNode(true));
+              const tb2 = document.createElement('tbody');
+              t2.appendChild(tb2);
+
+              rows.forEach((r) => {
+                if (thead && r.parentElement === thead) return;
+                const rh = r.offsetHeight || 30;
+                if (curH + rh <= PAGE_MAX_H) {
+                  tb1.appendChild(r.cloneNode(true));
+                  curH += rh;
+                } else {
+                  tb2.appendChild(r.cloneNode(true));
+                }
+              });
+
+              if (tb1.children.length > 0) {
+                curPage.push(t1);
+              }
+              flushPage();
+              if (tb2.children.length > 0) {
+                curPage.push(t2);
+                curH = tb2.offsetHeight || 120;
+              }
+              return;
+            }
+          }
+          flushPage();
+        }
+
+        curPage.push(node);
+        curH += nodeH > 0 ? nodeH : 30;
+      });
+
+      flushPage();
+    });
+
+    if (pagesData.length === 0) return;
+
+    const totalPages = pagesData.length;
+    wrapper.innerHTML = '';
+
+    pagesData.forEach((pageNodes, pIdx) => {
+      const pNum = pIdx + 1;
+      const pageSheet = document.createElement('section');
+      pageSheet.className = 'docx a4-page-sheet';
+      pageSheet.id = `modal-a4-page-${pNum}`;
+      pageSheet.setAttribute('data-page-no', `${pNum} / ${totalPages}`);
+
+      // Header Bar
+      const headerEl = document.createElement('div');
+      headerEl.className = 'a4-page-header-bar';
+      headerEl.innerHTML = `<span class="a4-page-header-docname">${docName || 'เอกสารต้นฉบับ'}</span>` +
+        `<span class="a4-page-badge">หน้า ${pNum} จาก ${totalPages} (ขนาด A4)</span>`;
+      pageSheet.appendChild(headerEl);
+
+      // Content Box
+      const contentBox = document.createElement('div');
+      contentBox.className = 'a4-page-content-box';
+      pageNodes.forEach((node) => {
+        contentBox.appendChild(node);
+      });
+      pageSheet.appendChild(contentBox);
+
+      // Footer Bar
+      const footerEl = document.createElement('div');
+      footerEl.className = 'a4-page-footer-bar';
+      footerEl.innerHTML = `<span class="a4-footer-sys">ระบบงานวิชาการ • กระทรวงศึกษาธิการ</span>` +
+        `<span class="a4-footer-page-num">— หน้าที่ ${pNum} —</span>`;
+      pageSheet.appendChild(footerEl);
+
+      wrapper.appendChild(pageSheet);
+
+      // Distinct A4 Page Divider
+      if (pIdx < totalPages - 1) {
+        const divider = document.createElement('div');
+        divider.className = 'a4-page-divider';
+        divider.innerHTML = `<div class="a4-divider-line"></div>` +
+          `<div class="a4-divider-badge">` +
+            `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>` +
+            `<span>จบหน้ากระดาษที่ ${pNum} (ขนาด A4) — ขึ้นหน้ากระดาษที่ ${pNum + 1}</span>` +
+          `</div>` +
+          `<div class="a4-divider-line"></div>`;
+        wrapper.appendChild(divider);
+      }
+    });
+
+    onPagesReady(totalPages);
+  };
+
   // Render real docx binary file into paginated A4 layout using docx-preview
   useEffect(() => {
     if (!isOpen || !file || !isDoc || activeViewMode !== 'original') return;
@@ -318,11 +458,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         }).then(() => {
           setDocxRenderLoading(false);
           if (docxContainerRef.current) {
-            const sections = docxContainerRef.current.querySelectorAll('.docx-wrapper > section.docx, section.docx');
-            const count = sections.length > 0 ? sections.length : 1;
-            setTotalDetectedPages(count);
-            sections.forEach((sec, idx) => {
-              sec.setAttribute('data-page-no', `${idx + 1} / ${count}`);
+            paginateModalDocxContainer(docxContainerRef.current, file.name, (count) => {
+              setTotalDetectedPages(count);
             });
           }
         }).catch((err) => {
@@ -579,55 +716,109 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               display: flex !important;
               flex-direction: column !important;
               align-items: center !important;
-              gap: 32px !important;
               width: 100% !important;
             }
             .modal-docx-container .docx-wrapper > section.docx,
-            .modal-docx-container section.docx {
+            .modal-docx-container section.docx,
+            .modal-docx-container .a4-page-sheet {
               background: #ffffff !important;
               color: #0f172a !important;
               width: 210mm !important;
               min-height: 297mm !important;
               max-width: calc(100vw - 48px) !important;
-              margin: 0 auto 32px auto !important;
-              box-shadow: 0 20px 30px -10px rgba(0, 0, 0, 0.5), 0 0 1px 1px rgba(0, 0, 0, 0.15) !important;
+              margin: 0 auto !important;
+              box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 0 1px 1px rgba(0, 0, 0, 0.1) !important;
               border-radius: 2px !important;
               position: relative !important;
               box-sizing: border-box !important;
-              padding: 25.4mm !important;
+              padding: 20mm 22mm !important;
               font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', 'Angsana New', Tahoma, sans-serif !important;
+              display: flex !important;
+              flex-direction: column !important;
+              justify-content: space-between !important;
             }
-            .modal-docx-container .docx-wrapper > section.docx:not(:last-child)::after {
-              content: "— จบหน้ากระดาษ (ขึ้นหน้าถัดไป ขนาด A4) —";
-              position: absolute;
-              bottom: -26px;
-              left: 50%;
-              transform: translateX(-50%);
+            .modal-docx-container .a4-page-header-bar {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              padding-bottom: 10px;
+              margin-bottom: 18px;
+              border-bottom: 1.5px solid #e2e8f0;
+              font-size: 11px;
+              color: #64748b;
+              width: 100%;
+              user-select: none;
+            }
+            .modal-docx-container .a4-page-header-docname {
+              font-weight: 600;
+              color: #475569;
+              max-width: 65%;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+            }
+            .modal-docx-container .a4-page-badge {
+              background: #f1f5f9;
+              border: 1px solid #cbd5e1;
+              color: #334155;
+              padding: 2px 8px;
+              border-radius: 9999px;
+              font-weight: 700;
+              font-size: 11px;
+            }
+            .modal-docx-container .a4-page-content-box {
+              flex: 1 1 auto;
+              width: 100%;
+            }
+            .modal-docx-container .a4-page-footer-bar {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              padding-top: 10px;
+              margin-top: 20px;
+              border-top: 1px dashed #cbd5e1;
+              font-size: 11px;
+              color: #94a3b8;
+              width: 100%;
+              user-select: none;
+            }
+            .modal-docx-container .a4-footer-sys {
+              color: #64748b;
+              font-weight: 500;
+            }
+            .modal-docx-container .a4-footer-page-num {
+              font-weight: 700;
+              color: #475569;
+            }
+            .modal-docx-container .a4-page-divider {
+              width: 210mm;
+              max-width: calc(100vw - 48px);
+              margin: 28px auto;
+              display: flex;
+              align-items: center;
+              gap: 16px;
+              user-select: none;
+            }
+            .modal-docx-container .a4-divider-line {
+              flex: 1;
+              height: 2px;
+              background: linear-gradient(90deg, transparent, #6366f1, #a855f7, transparent);
+              opacity: 0.6;
+            }
+            .modal-docx-container .a4-divider-badge {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              background: #1e1b4b;
+              border: 1.5px solid #818cf8;
+              color: #e0e7ff;
+              padding: 5px 16px;
+              border-radius: 9999px;
               font-size: 11px;
               font-weight: 700;
-              letter-spacing: 0.5px;
-              color: #cbd5e1;
-              background: #1e293b;
-              padding: 3px 18px;
-              border-radius: 9999px;
-              border: 1px solid #334155;
-              pointer-events: none;
+              letter-spacing: 0.3px;
+              box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
               white-space: nowrap;
-              box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-            }
-            .modal-docx-container .docx-wrapper > section.docx::before {
-              content: "หน้า " attr(data-page-no);
-              position: absolute;
-              top: 14px;
-              right: 20px;
-              font-size: 11px;
-              font-weight: 600;
-              color: #64748b;
-              background: #f1f5f9;
-              padding: 2px 8px;
-              border-radius: 4px;
-              border: 1px solid #cbd5e1;
-              pointer-events: none;
             }
           `}</style>
 
