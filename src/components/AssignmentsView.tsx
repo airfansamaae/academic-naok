@@ -22,7 +22,8 @@ import {
   Bell,
   Megaphone,
   Save,
-  Pencil
+  Pencil,
+  ExternalLink
 } from 'lucide-react';
 import { 
   Assignment, 
@@ -1494,10 +1495,19 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                           type="button"
                           onClick={() => onOpenFilePreview(file, editingSubmission.assignmentTitle, editingSubmission.memberName)}
                           className="p-1.5 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors cursor-pointer"
-                          title="เปิดดูไฟล์ต้นฉบับในแท็บใหม่"
+                          title="เปิดดูตัวอย่างไฟล์ (ขนาด A4 แบ่งหน้าชัดเจน)"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        <a
+                          href={file.viewUrl || (file.driveFileId ? `https://drive.google.com/file/d/${file.driveFileId}/view` : 'https://drive.google.com')}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                          title="เปิดไปยัง Google Drive ที่แสดงเฉพาะไฟล์นี้ (หน้าต่างใหม่)"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
                         <button
                           type="button"
                           onClick={() => handleDeleteSubmissionFile(file.id)}
@@ -1682,17 +1692,27 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                           {sub.files && sub.files.length > 0 && (
                             <div className="flex items-center gap-1 flex-wrap">
                               {sub.files.map((f, fIdx) => (
-                                <button
-                                  key={f.id || fIdx}
-                                  onClick={() => {
-                                    onOpenFilePreview(f, memberStatusModalAssignment.title, member.fullName);
-                                  }}
-                                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 cursor-pointer"
-                                  title={`เปิดดูไฟล์ต้นฉบับในแท็บใหม่: ${f.name}`}
-                                >
-                                  <Eye className="w-3.5 h-3.5" />
-                                  <span className="max-w-[100px] truncate">{f.name}</span>
-                                </button>
+                                <div key={f.id || fIdx} className="inline-flex items-center gap-1">
+                                  <button
+                                    onClick={() => {
+                                      onOpenFilePreview(f, memberStatusModalAssignment.title, member.fullName);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 cursor-pointer"
+                                    title={`เปิดดูตัวอย่างไฟล์ (ขนาด A4 แบ่งหน้า): ${f.name}`}
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span className="max-w-[100px] truncate">{f.name}</span>
+                                  </button>
+                                  <a
+                                    href={f.viewUrl || (f.driveFileId ? `https://drive.google.com/file/d/${f.driveFileId}/view` : 'https://drive.google.com')}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1 text-blue-600 hover:bg-blue-100 rounded-md border border-blue-200 cursor-pointer"
+                                    title={`เปิดไฟล์นี้ใน Google Drive (หน้าต่างใหม่): ${f.name}`}
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                </div>
                               ))}
                             </div>
                           )}

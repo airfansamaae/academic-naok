@@ -95,13 +95,22 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     setRotation(0);
     setCurrentPage(1);
     setCurrentScrolledPage(1);
-    const initialPages = file.previewType === 'doc' ? 3 : file.previewType === 'pdf' ? 3 : 1;
+    const lower = (file.name || '').toLowerCase();
+    const isOrder = lower.includes('คำสั่ง') || lower.includes('order');
+    const isDocOrPdf = file.previewType === 'doc' || file.previewType === 'pdf' || lower.match(/\.(docx|doc|pdf)$/);
+    const initialPages = isOrder ? 2 : isDocOrPdf ? 3 : file.previewType === 'presentation' ? 3 : 1;
     setTotalDetectedPages(initialPages);
     setCurrentSlide(1);
     setIsIframeLoading(true);
 
-    // Default to 'original' view mode when real file data or image/pdf exists
-    setActiveViewMode('original');
+    // CRITICAL: Always default to structured A4 paginated mode for documents and PDFs,
+    // ensuring pages are clearly divided (ขนาด A4), with clear page numbers (หน้า 1 จาก 3, etc.),
+    // and navigation buttons (◄ ก่อนหน้า, 1, 2, 3, ถัดไป ►) are immediately operational.
+    if (isDocOrPdf) {
+      setActiveViewMode('structured');
+    } else {
+      setActiveViewMode('original');
+    }
 
     if (file.fileDataUrl && file.fileDataUrl.startsWith('data:')) {
       try {
@@ -365,6 +374,12 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     const container = scrollContainerRef.current;
     if (!container) return;
     const targetPage = Math.max(1, Math.min(totalDetectedPages, pageNum));
+    const pageById = container.querySelector(`#docx-a4-page-${targetPage}`) as HTMLElement;
+    if (pageById) {
+      pageById.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setCurrentScrolledPage(targetPage);
+      return;
+    }
     const pages = container.querySelectorAll('.a4-page-sheet, .modal-docx-container .docx-wrapper > section.docx, .modal-docx-container section.docx');
     if (pages[targetPage - 1]) {
       const el = pages[targetPage - 1] as HTMLElement;
@@ -451,21 +466,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           {/* Quick Action Controls */}
           <div className="flex items-center space-x-1.5 shrink-0">
             
-            {/* View Mode Toggle (Original vs Structured) */}
+            {/* View Mode Toggle (A4 Paginated vs Raw) */}
             {(isDoc || isSpreadsheet || isPresentation || isPdf) && (
               <div className="hidden sm:flex items-center bg-slate-800 p-0.5 rounded-xl border border-slate-700 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setActiveViewMode('original')}
-                  className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                    activeViewMode === 'original'
-                      ? 'bg-purple-600 text-white shadow-xs'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                  title="ดูไฟล์ต้นฉบับจริง"
-                >
-                  {isPdf ? 'ไฟล์ PDF จริง' : isImage ? 'รูปภาพจริง' : 'พรีวิวไฟล์'}
-                </button>
                 <button
                   type="button"
                   onClick={() => setActiveViewMode('structured')}
@@ -474,12 +477,37 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                       ? 'bg-purple-600 text-white shadow-xs'
                       : 'text-slate-400 hover:text-white'
                   }`}
-                  title="ดูรายละเอียดโครงสร้างเอกสาร"
+                  title="ดูตัวอย่างเอกสารขนาด A4 แบ่งหน้าชัดเจนตามต้นฉบับ"
                 >
-                  โครงสร้างเนื้อหา
+                  📄 เอกสาร A4 (แบ่งหน้า)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveViewMode('original')}
+                  className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
+                    activeViewMode === 'original'
+                      ? 'bg-purple-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="ดูไฟล์ดิบ / Google Drive Viewer"
+                >
+                  {isPdf ? 'ไฟล์ PDF ดิบ' : isDoc ? 'ไฟล์ Word ดิบ' : 'ไฟล์ดิบ'}
                 </button>
               </div>
             )}
+
+            {/* Direct Google Drive Open Button */}
+            <a
+              href={file.viewUrl || (file.driveFileId ? `https://drive.google.com/file/d/${file.driveFileId}/view` : 'https://drive.google.com')}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="เปิดดูเฉพาะไฟล์นี้ใน Google Drive (หน้าต่างใหม่)"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-md cursor-pointer"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">เปิดใน Google Drive</span>
+              <span className="sm:hidden">Drive</span>
+            </a>
 
             {/* Image Controls (Zoom & Rotate) */}
             {isImage && (
@@ -750,8 +778,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           `}</style>
 
           {/* FLOATING / STICKY PAGE INDICATOR & REAL-TIME SCROLL JUMPER */}
-          {(isDoc || (isPdf && activeViewMode === 'structured')) && (
-            <div className="sticky top-2 z-40 mb-4 bg-slate-900/95 backdrop-blur-md px-4 py-2 rounded-2xl border border-slate-700/80 shadow-2xl flex items-center justify-between gap-3 text-white text-xs max-w-xl mx-auto w-full transition-all select-none">
+          {(isDoc || isPdf || activeViewMode === 'structured') && (
+            <div className="sticky top-2 z-40 mb-4 bg-slate-900/95 backdrop-blur-md px-4 py-2 rounded-2xl border border-slate-700/80 shadow-2xl flex flex-wrap items-center justify-between gap-3 text-white text-xs max-w-2xl mx-auto w-full transition-all select-none">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                 <span className="font-bold text-slate-200 truncate">
@@ -770,18 +798,18 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   ◄ ก่อนหน้า
                 </button>
                 
-                <div className="hidden sm:flex items-center gap-1">
+                <div className="flex items-center gap-1">
                   {Array.from({ length: Math.min(totalDetectedPages, 6) }).map((_, i) => (
                     <button
                       key={i}
                       type="button"
                       onClick={() => scrollToPage(i + 1)}
-                      className={`w-6 h-6 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                      className={`w-7 h-7 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                         currentScrolledPage === i + 1
-                          ? 'bg-purple-600 text-white shadow-xs scale-105 ring-1 ring-purple-400'
+                          ? 'bg-purple-600 text-white shadow-xs scale-105 ring-2 ring-purple-400'
                           : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                       }`}
-                      title={`เลื่อนไปหน้า ${i + 1}`}
+                      title={`เลื่อนไปหน้าที่ ${i + 1}`}
                     >
                       {i + 1}
                     </button>
@@ -797,6 +825,17 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 >
                   ถัดไป ►
                 </button>
+
+                <a
+                  href={file.viewUrl || (file.driveFileId ? `https://drive.google.com/file/d/${file.driveFileId}/view` : 'https://drive.google.com')}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                  title="เปิดดูเฉพาะไฟล์นี้ใน Google Drive (หน้าต่างใหม่)"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span className="hidden sm:inline">Google Drive</span>
+                </a>
               </div>
             </div>
           )}
@@ -1337,13 +1376,16 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                       {/* ------------------------------------------------------------- */}
                       {/* PAGE 1 (ขนาด A4: ส่วนหัว, สาระสำคัญ, ข้อมูลเบื้องต้น) */}
                       {/* ------------------------------------------------------------- */}
-                      <section className="a4-page-sheet w-full max-w-[794px] min-h-[1050px] bg-white rounded-xs shadow-2xl border border-slate-300 p-8 sm:p-14 text-slate-900 leading-relaxed font-sans relative flex flex-col justify-between select-text transition-transform duration-200">
+                      <section
+                        id="docx-a4-page-1"
+                        className="a4-page-sheet w-full max-w-[794px] min-h-[1050px] bg-white rounded-xs shadow-2xl border border-slate-300 p-8 sm:p-14 text-slate-900 leading-relaxed font-sans relative flex flex-col justify-between select-text transition-transform duration-200"
+                      >
                         <div>
                           {/* Page Running Header */}
                           <div className="flex items-center justify-between pb-3 border-b border-slate-300 text-xs text-slate-500 font-sans">
                             <span className="font-semibold text-slate-700">โรงเรียนสาธิตเทศบาลวิชาการ • กระทรวงศึกษาธิการ</span>
                             <span className="px-2 py-0.5 rounded-sm bg-slate-100 border border-slate-200 font-mono text-[11px] font-bold text-purple-700">
-                              หน้า ๑ จาก ๓ หน้า (ขนาด A4)
+                              หน้า ๑ จาก {isOrderDoc ? '๒' : '๓'} หน้า (ขนาด A4)
                             </span>
                           </div>
 
@@ -1475,13 +1517,16 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                       {/* ------------------------------------------------------------- */}
                       {/* PAGE 2 (ขนาด A4: จุดประสงค์ KPA, กิจกรรม Active Learning, สื่อ) */}
                       {/* ------------------------------------------------------------- */}
-                      <section className="a4-page-sheet w-full max-w-[794px] min-h-[1050px] bg-white rounded-xs shadow-2xl border border-slate-300 p-8 sm:p-14 text-slate-900 leading-relaxed font-sans relative flex flex-col justify-between select-text transition-transform duration-200">
+                      <section
+                        id="docx-a4-page-2"
+                        className="a4-page-sheet w-full max-w-[794px] min-h-[1050px] bg-white rounded-xs shadow-2xl border border-slate-300 p-8 sm:p-14 text-slate-900 leading-relaxed font-sans relative flex flex-col justify-between select-text transition-transform duration-200"
+                      >
                         <div>
                           {/* Page Running Header */}
                           <div className="flex items-center justify-between pb-3 border-b border-slate-300 text-xs text-slate-500 font-sans">
                             <span className="font-semibold text-slate-700">โรงเรียนสาธิตเทศบาลวิชาการ • กิจกรรมการเรียนรู้และสื่อ</span>
                             <span className="px-2 py-0.5 rounded-sm bg-slate-100 border border-slate-200 font-mono text-[11px] font-bold text-purple-700">
-                              หน้า ๒ จาก ๓ หน้า (ขนาด A4)
+                              หน้า ๒ จาก {isOrderDoc ? '๒' : '๓'} หน้า (ขนาด A4)
                             </span>
                           </div>
 
@@ -1569,106 +1614,113 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                       </section>
 
                       {/* VISUAL A4 PAGE SEPARATOR 2 -> 3 */}
-                      <div className="w-full flex items-center justify-center gap-3 py-4 select-none">
-                        <div className="h-px bg-slate-700/80 flex-1 max-w-[220px]" />
-                        <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/95 border border-slate-700 text-xs font-bold text-slate-300 shadow-lg">
-                          <Layers className="w-3.5 h-3.5 text-purple-400" />
-                          <span>— จบหน้ากระดาษที่ ๒ (ขึ้นหน้าถัดไป ขนาด A4) —</span>
-                        </div>
-                        <div className="h-px bg-slate-700/80 flex-1 max-w-[220px]" />
-                      </div>
-
-                      {/* ------------------------------------------------------------- */}
-                      {/* PAGE 3 (ขนาด A4: การวัดผล, บันทึกหลังสอน, ลายมือชื่อและการรับรอง) */}
-                      {/* ------------------------------------------------------------- */}
-                      <section className="a4-page-sheet w-full max-w-[794px] min-h-[1050px] bg-white rounded-xs shadow-2xl border border-slate-300 p-8 sm:p-14 text-slate-900 leading-relaxed font-sans relative flex flex-col justify-between select-text transition-transform duration-200">
-                        <div>
-                          {/* Page Running Header */}
-                          <div className="flex items-center justify-between pb-3 border-b border-slate-300 text-xs text-slate-500 font-sans">
-                            <span className="font-semibold text-slate-700">โรงเรียนสาธิตเทศบาลวิชาการ • การวัดผลและลงนามรับรองเอกสาร</span>
-                            <span className="px-2 py-0.5 rounded-sm bg-slate-100 border border-slate-200 font-mono text-[11px] font-bold text-purple-700">
-                              หน้า ๓ จาก ๓ หน้า (ขนาด A4)
-                            </span>
+                      {!isOrderDoc && (
+                        <>
+                          <div className="w-full flex items-center justify-center gap-3 py-4 select-none">
+                            <div className="h-px bg-slate-700/80 flex-1 max-w-[220px]" />
+                            <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/95 border border-slate-700 text-xs font-bold text-slate-300 shadow-lg">
+                              <Layers className="w-3.5 h-3.5 text-purple-400" />
+                              <span>— จบหน้ากระดาษที่ ๒ (ขึ้นหน้าถัดไป ขนาด A4) —</span>
+                            </div>
+                            <div className="h-px bg-slate-700/80 flex-1 max-w-[220px]" />
                           </div>
 
-                          <div className="py-4 border-b border-slate-200 mb-4">
-                            <h3 className="text-base font-bold text-slate-900">
-                              การวัดและประเมินผลสัมฤทธิ์ทางการเรียนและการตรวจรับรองทางวิชาการ
-                            </h3>
-                            <p className="text-xs text-slate-500">เอกสารแนบท้ายคำสั่งและแผนการสอนวิชาการ ประจำปีการศึกษา ๒๕๖๙</p>
-                          </div>
-
-                          <div className="space-y-4 text-xs sm:text-sm text-slate-800 leading-relaxed font-sans">
+                          {/* ------------------------------------------------------------- */}
+                          {/* PAGE 3 (ขนาด A4: การวัดผล, บันทึกหลังสอน, ลายมือชื่อและการรับรอง) */}
+                          {/* ------------------------------------------------------------- */}
+                          <section
+                            id="docx-a4-page-3"
+                            className="a4-page-sheet w-full max-w-[794px] min-h-[1050px] bg-white rounded-xs shadow-2xl border border-slate-300 p-8 sm:p-14 text-slate-900 leading-relaxed font-sans relative flex flex-col justify-between select-text transition-transform duration-200"
+                          >
                             <div>
-                              <h4 className="font-bold text-slate-900 mb-1">๗. การวัดและประเมินผลสัมฤทธิ์ทางการเรียน</h4>
-                              <ul className="list-disc list-inside space-y-1 text-slate-700 pl-2 text-xs">
-                                <li>ตรวจผลงานผังงาน Flowchart จากใบกิจกรรมที่ ๑ (เกณฑ์ผ่าน ๘๐%)</li>
-                                <li>สังเกตพฤติกรรมการมีส่วนร่วมในการทำกิจกรรมกลุ่มและการนำเสนอ</li>
-                                <li>แบบทดสอบย่อยท้ายหน่วยการเรียนรู้ผ่านระบบ Google Forms</li>
-                              </ul>
-                            </div>
-
-                            <div>
-                              <h4 className="font-bold text-slate-900 mb-1">๘. บันทึกผลหลังการจัดการเรียนรู้ / ข้อค้นพบเชิงวิชาการ</h4>
-                              <p className="text-slate-700 indent-6 text-xs bg-slate-50 p-3 rounded-lg border border-slate-200">
-                                ผู้เรียนชั้นมัธยมศึกษาปีที่ ๒ สามารถทำความเข้าใจองค์ประกอบของแนวคิดเชิงคำนวณและประยุกต์ใช้ในการเขียนผังงานเพื่อจำลองแนวทางแก้ไขปัญหาได้ถูกต้อง คิดเป็นร้อยละ ๙๒.๕ ของผู้เรียนทั้งหมด มีผลงานระดับดีเยี่ยม สามารถนำไปพัฒนาเป็นโครงงานนวัตกรรมดิจิทัลต่อเนื่องได้
-                              </p>
-                            </div>
-
-                            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                              <h4 className="font-bold text-slate-900 text-xs mb-1">ความคิดเห็นของหัวหน้ากลุ่มสาระการเรียนรู้</h4>
-                              <p className="text-slate-700 text-xs">
-                                ☑ เป็นแผนการจัดการเรียนรู้ที่เน้นผู้เรียนเป็นสำคัญ สอดคล้องกับมาตรฐานและตัวชี้วัด สพฐ. สมควรนำไปใช้จัดกิจกรรมการเรียนรู้ได้
-                              </p>
-                            </div>
-
-                            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                              <h4 className="font-bold text-slate-900 text-xs mb-1">ความคิดเห็นของหัวหน้ากลุ่มบริหารงานวิชาการ</h4>
-                              <p className="text-slate-700 text-xs">
-                                ☑ ตรวจสอบแล้ว มีการบูรณาการเครื่องมือดิจิทัลและกระบวนการวัดผลครอบคลุม K-P-A อนุมัติการใช้แผนการสอน
-                              </p>
-                            </div>
-
-                            {/* Official Academic Signatures with Seal */}
-                            <div className="pt-6 border-t-2 border-slate-300 mt-6 relative">
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 text-center text-xs">
-                                <div>
-                                  <p className="font-bold text-slate-900">(ลงชื่อ)....................................................</p>
-                                  <p className="mt-1 font-semibold text-slate-800">({submitterName || 'นายสมชาย รักเรียน'})</p>
-                                  <p className="text-slate-500 text-[11px]">ครูผู้สอน / ผู้ส่งเอกสาร</p>
-                                  <p className="text-slate-400 text-[10px]">วันที่ ๑๕ พฤษภาคม ๒๕๖๙</p>
-                                </div>
-                                <div>
-                                  <p className="font-bold text-slate-900">(ลงชื่อ)....................................................</p>
-                                  <p className="mt-1 font-semibold text-slate-800">(นางดารณี ปัญญาวงศ์)</p>
-                                  <p className="text-slate-500 text-[11px]">หัวหน้ากลุ่มสาระการเรียนรู้</p>
-                                  <p className="text-slate-400 text-[10px]">วันที่ ๑๖ พฤษภาคม ๒๕๖๙</p>
-                                </div>
-                                <div className="col-span-2 sm:col-span-1">
-                                  <p className="font-bold text-slate-900">(ลงชื่อ)....................................................</p>
-                                  <p className="mt-1 font-semibold text-slate-800">(นายวีระพล เกียรติสกุล)</p>
-                                  <p className="text-purple-900 font-bold text-[11px]">ผู้อำนวยการโรงเรียน</p>
-                                  <p className="text-slate-400 text-[10px]">วันที่ ๑๗ พฤษภาคม ๒๕๖๙</p>
-                                </div>
+                              {/* Page Running Header */}
+                              <div className="flex items-center justify-between pb-3 border-b border-slate-300 text-xs text-slate-500 font-sans">
+                                <span className="font-semibold text-slate-700">โรงเรียนสาธิตเทศบาลวิชาการ • การวัดผลและลงนามรับรองเอกสาร</span>
+                                <span className="px-2 py-0.5 rounded-sm bg-slate-100 border border-slate-200 font-mono text-[11px] font-bold text-purple-700">
+                                  หน้า ๓ จาก ๓ หน้า (ขนาด A4)
+                                </span>
                               </div>
 
-                              {/* Official Certified Stamp Badge */}
-                              <div className="mt-6 flex items-center justify-center">
-                                <div className="px-5 py-2 border-2 border-dashed border-emerald-600 rounded-xl bg-emerald-50/80 text-emerald-900 text-xs font-bold flex items-center gap-2 shadow-xs">
-                                  <CheckCircle className="w-4 h-4 text-emerald-600" />
-                                  <span>เอกสารผ่านการตรวจรับรองทางวิชาการและอนุมัติจัดเก็บในระบบคลังเอกสารอิเล็กทรอนิกส์</span>
+                              <div className="py-4 border-b border-slate-200 mb-4">
+                                <h3 className="text-base font-bold text-slate-900">
+                                  การวัดและประเมินผลสัมฤทธิ์ทางการเรียนและการตรวจรับรองทางวิชาการ
+                                </h3>
+                                <p className="text-xs text-slate-500">เอกสารแนบท้ายคำสั่งและแผนการสอนวิชาการ ประจำปีการศึกษา ๒๕๖๙</p>
+                              </div>
+
+                              <div className="space-y-4 text-xs sm:text-sm text-slate-800 leading-relaxed font-sans">
+                                <div>
+                                  <h4 className="font-bold text-slate-900 mb-1">๗. การวัดและประเมินผลสัมฤทธิ์ทางการเรียน</h4>
+                                  <ul className="list-disc list-inside space-y-1 text-slate-700 pl-2 text-xs">
+                                    <li>ตรวจผลงานผังงาน Flowchart จากใบกิจกรรมที่ ๑ (เกณฑ์ผ่าน ๘๐%)</li>
+                                    <li>สังเกตพฤติกรรมการมีส่วนร่วมในการทำกิจกรรมกลุ่มและการนำเสนอ</li>
+                                    <li>แบบทดสอบย่อยท้ายหน่วยการเรียนรู้ผ่านระบบ Google Forms</li>
+                                  </ul>
+                                </div>
+
+                                <div>
+                                  <h4 className="font-bold text-slate-900 mb-1">๘. บันทึกผลหลังการจัดการเรียนรู้ / ข้อค้นพบเชิงวิชาการ</h4>
+                                  <p className="text-slate-700 indent-6 text-xs bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                    ผู้เรียนชั้นมัธยมศึกษาปีที่ ๒ สามารถทำความเข้าใจองค์ประกอบของแนวคิดเชิงคำนวณและประยุกต์ใช้ในการเขียนผังงานเพื่อจำลองแนวทางแก้ไขปัญหาได้ถูกต้อง คิดเป็นร้อยละ ๙๒.๕ ของผู้เรียนทั้งหมด มีผลงานระดับดีเยี่ยม สามารถนำไปพัฒนาเป็นโครงงานนวัตกรรมดิจิทัลต่อเนื่องได้
+                                  </p>
+                                </div>
+
+                                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                                  <h4 className="font-bold text-slate-900 text-xs mb-1">ความคิดเห็นของหัวหน้ากลุ่มสาระการเรียนรู้</h4>
+                                  <p className="text-slate-700 text-xs">
+                                    ☑ เป็นแผนการจัดการเรียนรู้ที่เน้นผู้เรียนเป็นสำคัญ สอดคล้องกับมาตรฐานและตัวชี้วัด สพฐ. สมควรนำไปใช้จัดกิจกรรมการเรียนรู้ได้
+                                  </p>
+                                </div>
+
+                                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                                  <h4 className="font-bold text-slate-900 text-xs mb-1">ความคิดเห็นของหัวหน้ากลุ่มบริหารงานวิชาการ</h4>
+                                  <p className="text-slate-700 text-xs">
+                                    ☑ ตรวจสอบแล้ว มีการบูรณาการเครื่องมือดิจิทัลและกระบวนการวัดผลครอบคลุม K-P-A อนุมัติการใช้แผนการสอน
+                                  </p>
+                                </div>
+
+                                {/* Official Academic Signatures with Seal */}
+                                <div className="pt-6 border-t-2 border-slate-300 mt-6 relative">
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 text-center text-xs">
+                                    <div>
+                                      <p className="font-bold text-slate-900">(ลงชื่อ)....................................................</p>
+                                      <p className="mt-1 font-semibold text-slate-800">({submitterName || 'นายสมชาย รักเรียน'})</p>
+                                      <p className="text-slate-500 text-[11px]">ครูผู้สอน / ผู้ส่งเอกสาร</p>
+                                      <p className="text-slate-400 text-[10px]">วันที่ ๑๕ พฤษภาคม ๒๕๖๙</p>
+                                    </div>
+                                    <div>
+                                      <p className="font-bold text-slate-900">(ลงชื่อ)....................................................</p>
+                                      <p className="mt-1 font-semibold text-slate-800">(นางดารณี ปัญญาวงศ์)</p>
+                                      <p className="text-slate-500 text-[11px]">หัวหน้ากลุ่มสาระการเรียนรู้</p>
+                                      <p className="text-slate-400 text-[10px]">วันที่ ๑๖ พฤษภาคม ๒๕๖๙</p>
+                                    </div>
+                                    <div className="col-span-2 sm:col-span-1">
+                                      <p className="font-bold text-slate-900">(ลงชื่อ)....................................................</p>
+                                      <p className="mt-1 font-semibold text-slate-800">(นายวีระพล เกียรติสกุล)</p>
+                                      <p className="text-purple-900 font-bold text-[11px]">ผู้อำนวยการโรงเรียน</p>
+                                      <p className="text-slate-400 text-[10px]">วันที่ ๑๗ พฤษภาคม ๒๕๖๙</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Official Certified Stamp Badge */}
+                                  <div className="mt-6 flex items-center justify-center">
+                                    <div className="px-5 py-2 border-2 border-dashed border-emerald-600 rounded-xl bg-emerald-50/80 text-emerald-900 text-xs font-bold flex items-center gap-2 shadow-xs">
+                                      <CheckCircle className="w-4 h-4 text-emerald-600" />
+                                      <span>เอกสารผ่านการตรวจรับรองทางวิชาการและอนุมัติจัดเก็บในระบบคลังเอกสารอิเล็กทรอนิกส์</span>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        </div>
 
-                        {/* Page 3 Running Footer */}
-                        <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-xs text-slate-400 font-sans mt-8">
-                          <span>งานวิชาการและแผนการสอน • หลักสูตรแกนกลางการศึกษาขั้นพื้นฐาน</span>
-                          <span className="font-mono font-bold text-slate-600">— ๓ —</span>
-                        </div>
-                      </section>
+                            {/* Page 3 Running Footer */}
+                            <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-xs text-slate-400 font-sans mt-8">
+                              <span>งานวิชาการและแผนการสอน • หลักสูตรแกนกลางการศึกษาขั้นพื้นฐาน</span>
+                              <span className="font-mono font-bold text-slate-600">— ๓ —</span>
+                            </div>
+                          </section>
+                        </>
+                      )}
 
                     </div>
                   )}
