@@ -204,13 +204,18 @@ export default function App() {
     };
   }, []);
 
-  // Open Preview Modal -> Opens authentic attached file in a full-screen new tab
+  // Open Preview Modal -> Opens authentic attached file in interactive A4 preview modal
   const handleOpenFilePreview = (
     file: UploadedFile,
     assignmentTitle?: string,
     uploaderName?: string
   ) => {
-    openAuthenticFileInNewTab(file, assignmentTitle, uploaderName);
+    setPreviewModalData({
+      isOpen: true,
+      file,
+      assignmentTitle,
+      uploaderName
+    });
   };
 
   // Handle Logout
