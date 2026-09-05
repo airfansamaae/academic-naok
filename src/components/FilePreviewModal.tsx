@@ -37,7 +37,7 @@ import {
 import { UploadedFile } from '../types';
 import { triggerDirectDownload } from '../services/storageService';
 import { openAuthenticFileInNewTab } from '../utils/fileViewer';
-import { parseDocxBinary, DocxParsedPage } from '../utils/docxParser';
+import { renderAsync } from 'docx-preview';
 import Swal from 'sweetalert2';
 
 interface FilePreviewModalProps {
@@ -62,7 +62,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [currentScrolledPage, setCurrentScrolledPage] = useState<number>(1);
   const [totalDetectedPages, setTotalDetectedPages] = useState<number>(3);
-  const [parsedDocxPages, setParsedDocxPages] = useState<DocxParsedPage[]>([]);
+  const [parsedDocxPages, setParsedDocxPages] = useState<any[]>([]);
   const [docxRenderLoading, setDocxRenderLoading] = useState<boolean>(false);
   const [docxRenderError, setDocxRenderError] = useState<boolean>(false);
   const [currentSlide, setCurrentSlide] = useState<number>(1);
@@ -181,71 +181,113 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const isResearchDoc = Boolean(file && (file.name.includes('วิจัย') || file.name.toLowerCase().includes('research')));
   const isLessonPlan = Boolean(file && (file.name.includes('แผน') || file.name.toLowerCase().includes('plan') || file.name.toLowerCase().includes('active')));
 
-  // Helper to construct fallback A4 pages if docx XML has no body elements
-  const createFallbackDocxPages = (f: UploadedFile): DocxParsedPage[] => {
-    const text = f.previewContent || f.name;
-    const lines = text.split('\n').filter((l) => l.trim().length > 0);
-    const pages: DocxParsedPage[] = [];
-    const linesPerPage = 14;
-    for (let i = 0; i < Math.max(1, Math.ceil(lines.length / linesPerPage)); i++) {
-      const pLines = lines.slice(i * linesPerPage, (i + 1) * linesPerPage);
-      pages.push({
-        pageNumber: i + 1,
-        elements: pLines.map((line, lIdx) => ({
-          type: 'paragraph',
-          align: i === 0 && lIdx === 0 ? 'center' : 'left',
-          runs: [
-            {
-              text: line,
-              bold: i === 0 && lIdx === 0,
-              fontSizePt: i === 0 && lIdx === 0 ? 18 : 14
-            }
-          ]
-        }))
-      });
-    }
-    return pages;
-  };
-
-  // Parse authentic DOCX directly without external script delays or infinite spinners
-  // Must remain at the top level with all other hooks to adhere to React Rules of Hooks
+  // Render authentic DOCX directly with docx-preview into genuine A4 sheets
   useEffect(() => {
     if (!isOpen || !file || !isDoc) return;
 
+    let isMounted = true;
     setDocxRenderLoading(true);
     setDocxRenderError(false);
 
-    if (file.fileDataUrl) {
-      parseDocxBinary(file.fileDataUrl)
-        .then((res) => {
-          if (res.pages && res.pages.length > 0) {
-            setParsedDocxPages(res.pages);
-            setTotalDetectedPages(res.totalPages);
-            setCurrentPage(1);
-            setCurrentScrolledPage(1);
-          } else {
-            const fallback = createFallbackDocxPages(file);
-            setParsedDocxPages(fallback);
-            setTotalDetectedPages(fallback.length);
-          }
-          setDocxRenderLoading(false);
-          setDocxRenderError(false);
-        })
-        .catch((err) => {
-          console.warn('Docx binary parsing error:', err);
-          const fallback = createFallbackDocxPages(file);
-          setParsedDocxPages(fallback);
-          setTotalDetectedPages(fallback.length);
-          setDocxRenderLoading(false);
-          setDocxRenderError(false);
+    const renderDocxFile = async () => {
+      try {
+        if (!file.fileDataUrl) {
+          throw new Error('No binary file data');
+        }
+
+        const rawBase64 = file.fileDataUrl.includes(';base64,')
+          ? file.fileDataUrl.split(';base64,')[1]
+          : file.fileDataUrl;
+
+        if (!rawBase64) {
+          throw new Error('Empty base64 string');
+        }
+
+        const binaryStr = atob(rawBase64.trim());
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+
+        // Slight wait for container DOM ref to bind if modal just opened
+        if (!docxContainerRef.current) {
+          await new Promise((resolve) => setTimeout(resolve, 60));
+        }
+
+        if (!docxContainerRef.current || !isMounted) return;
+
+        docxContainerRef.current.innerHTML = '';
+
+        await renderAsync(bytes.buffer, docxContainerRef.current, undefined, {
+          className: 'docx',
+          inWrapper: true,
+          ignoreWidth: false,
+          ignoreHeight: false,
+          ignoreFonts: false,
+          breakPages: true,
+          renderHeaders: true,
+          renderFooters: true,
+          renderFootnotes: true,
+          renderEndnotes: true,
+          useBase64URL: true,
         });
-    } else {
-      const fallback = createFallbackDocxPages(file);
-      setParsedDocxPages(fallback);
-      setTotalDetectedPages(fallback.length);
-      setDocxRenderLoading(false);
-      setDocxRenderError(false);
-    }
+
+        if (!isMounted || !docxContainerRef.current) return;
+
+        // Discover all rendered A4 sections
+        const sections = Array.from(
+          docxContainerRef.current.querySelectorAll<HTMLElement>('.docx-wrapper > section.docx, section.docx')
+        );
+
+        const pageCount = Math.max(1, sections.length);
+        setTotalDetectedPages(pageCount);
+        setCurrentPage(1);
+        setCurrentScrolledPage(1);
+
+        sections.forEach((sec: any, idx: number) => {
+          const pageNum = idx + 1;
+          sec.id = `docx-a4-page-${pageNum}`;
+          sec.classList.add('a4-page-sheet');
+
+          // Running header
+          if (!sec.querySelector('.a4-page-header-bar')) {
+            const header = document.createElement('div');
+            header.className = 'a4-page-header-bar';
+            header.innerHTML = `
+              <span class="a4-page-header-docname">${file.name}</span>
+              <span class="a4-page-badge">หน้า ${pageNum} จาก ${pageCount} (ขนาด A4)</span>
+            `;
+            sec.insertBefore(header, sec.firstChild);
+          }
+
+          // Running footer
+          if (!sec.querySelector('.a4-page-footer-bar')) {
+            const footer = document.createElement('div');
+            footer.className = 'a4-page-footer-bar';
+            footer.innerHTML = `
+              <span class="a4-footer-sys">ระบบงานวิชาการ • กระทรวงศึกษาธิการ</span>
+              <span class="a4-footer-page-num">— หน้าที่ ${pageNum} —</span>
+            `;
+            sec.appendChild(footer);
+          }
+        });
+
+        setDocxRenderLoading(false);
+        setDocxRenderError(false);
+      } catch (err) {
+        console.warn('Docx direct render fallback:', err);
+        if (!isMounted) return;
+        setDocxRenderError(true);
+        setDocxRenderLoading(false);
+        setTotalDetectedPages(1);
+      }
+    };
+
+    renderDocxFile();
+
+    return () => {
+      isMounted = false;
+    };
   }, [file, isOpen, isDoc]);
 
   const totalPages = file?.previewType === 'pdf' ? 3 : file?.previewType === 'doc' ? 2 : 1;
@@ -606,7 +648,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               width: 210mm !important;
               min-height: 297mm !important;
               max-width: calc(100vw - 48px) !important;
-              margin: 0 auto !important;
+              margin: 0 auto 24px auto !important;
               box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 0 1px 1px rgba(0, 0, 0, 0.1) !important;
               border-radius: 2px !important;
               position: relative !important;
@@ -616,6 +658,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               display: flex !important;
               flex-direction: column !important;
               justify-content: space-between !important;
+            }
+            .modal-docx-container table {
+              border-collapse: collapse !important;
+              max-width: 100% !important;
+              word-break: break-word !important;
             }
             .modal-docx-container .a4-page-header-bar {
               display: flex;
@@ -1237,128 +1284,51 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                           <span className="text-sm font-semibold">กำลังจัดเตรียมหน้าเอกสาร A4 ตามต้นฉบับ...</span>
                         </div>
                       )}
-                      {!docxRenderLoading && parsedDocxPages.map((page, pIdx) => (
-                        <React.Fragment key={page.pageNumber}>
+
+                      {/* Authentic docx-preview rendered container */}
+                      <div
+                        ref={docxContainerRef}
+                        className={`modal-docx-container w-full flex flex-col items-center select-text ${
+                          docxRenderLoading || docxRenderError ? 'hidden' : 'block'
+                        }`}
+                        style={{
+                          transform: `scale(${zoomLevel / 100})`,
+                          transformOrigin: 'top center',
+                          transition: 'transform 0.15s ease-out'
+                        }}
+                      />
+
+                      {/* Clean fallback if binary data is missing or error */}
+                      {!docxRenderLoading && docxRenderError && (
+                        <div className="w-full flex flex-col items-center gap-4">
                           <section
-                            id={`docx-a4-page-${page.pageNumber}`}
-                            className="a4-page-sheet w-full max-w-[794px] min-h-[1123px] bg-white rounded-xs shadow-2xl border border-slate-300 p-8 sm:p-14 text-slate-900 leading-relaxed font-sans relative flex flex-col justify-between select-text transition-transform duration-200"
+                            id="docx-a4-page-1"
+                            className="a4-page-sheet w-full max-w-[794px] min-h-[1123px] bg-white rounded-xs shadow-2xl border border-slate-300 p-8 sm:p-14 text-slate-900 leading-relaxed font-sans relative flex flex-col justify-between select-text"
                             style={{
                               transform: `scale(${zoomLevel / 100})`,
                               transformOrigin: 'top center'
                             }}
                           >
                             <div>
-                              {/* Running Header Bar */}
                               <div className="flex items-center justify-between pb-3 border-b border-slate-300 text-xs text-slate-500 font-sans select-none">
                                 <span className="font-semibold text-slate-700 truncate max-w-[340px] sm:max-w-md">
                                   {file.name}
                                 </span>
                                 <span className="px-2.5 py-0.5 rounded-sm bg-purple-50 border border-purple-200 font-mono text-[11px] font-bold text-purple-700">
-                                  หน้า {page.pageNumber} จาก {parsedDocxPages.length} หน้า (ขนาด A4)
+                                  หน้า 1 จาก 1 หน้า (ขนาด A4)
                                 </span>
                               </div>
-
-                              {/* Page Content Elements */}
-                              <div className="py-6 flex flex-col gap-3 font-sans">
-                                {page.elements.map((el, elIdx) => {
-                                  if (el.type === 'paragraph') {
-                                    return (
-                                      <p
-                                        key={elIdx}
-                                        className={`leading-relaxed text-slate-800 ${
-                                          el.align === 'center'
-                                            ? 'text-center'
-                                            : el.align === 'right'
-                                            ? 'text-right'
-                                            : el.align === 'justify'
-                                            ? 'text-justify'
-                                            : 'text-left'
-                                        }`}
-                                      >
-                                        {el.runs.map((r, rIdx) => (
-                                          <span
-                                            key={rIdx}
-                                            style={{
-                                              fontWeight: r.bold ? 700 : 400,
-                                              fontStyle: r.italic ? 'italic' : 'normal',
-                                              textDecoration: r.underline ? 'underline' : 'none',
-                                              color: r.color || undefined,
-                                              fontSize: r.fontSizePt ? `${r.fontSizePt * 1.15}px` : '15px'
-                                            }}
-                                          >
-                                            {r.text}
-                                          </span>
-                                        ))}
-                                      </p>
-                                    );
-                                  } else if (el.type === 'table') {
-                                    return (
-                                      <div key={elIdx} className="overflow-x-auto my-3">
-                                        <table className="w-full border-collapse border border-slate-400 text-xs sm:text-sm">
-                                          <tbody>
-                                            {el.rows.map((row, rowIdx) => (
-                                              <tr
-                                                key={rowIdx}
-                                                className={
-                                                  rowIdx === 0
-                                                    ? 'bg-purple-50/80 font-semibold'
-                                                    : rowIdx % 2 === 0
-                                                    ? 'bg-slate-50/50'
-                                                    : 'bg-white'
-                                                }
-                                              >
-                                                {row.map((cell, cIdx) => (
-                                                  <td
-                                                    key={cIdx}
-                                                    className="border border-slate-300 px-3 py-2 text-slate-800 align-top whitespace-pre-line"
-                                                  >
-                                                    {cell}
-                                                  </td>
-                                                ))}
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                        </table>
-                                      </div>
-                                    );
-                                  } else if (el.type === 'image' && el.dataUrl) {
-                                    return (
-                                      <div key={elIdx} className="my-4 flex justify-center">
-                                        <img
-                                          src={el.dataUrl}
-                                          alt={el.alt || 'ภาพประกอบเอกสาร'}
-                                          className="max-w-full max-h-[400px] rounded object-contain"
-                                        />
-                                      </div>
-                                    );
-                                  }
-                                  return null;
-                                })}
+                              <div className="py-8 whitespace-pre-wrap font-sans text-slate-800 leading-relaxed text-sm">
+                                {file.previewContent || `[เอกสาร Word]: ${file.name}\nขนาด: ${(file.size / 1024).toFixed(1)} KB\nผู้ส่ง: ${submitterName || 'ฝ่ายวิชาการ'}`}
                               </div>
                             </div>
-
-                            {/* Running Footer Bar */}
                             <div className="pt-3 border-t border-slate-300 flex items-center justify-between text-xs text-slate-500 font-sans select-none">
                               <span>ระบบงานวิชาการ • กระทรวงศึกษาธิการ</span>
-                              <span className="font-bold text-slate-700">— หน้าที่ {page.pageNumber} —</span>
+                              <span className="font-bold text-slate-700">— หน้าที่ 1 —</span>
                             </div>
                           </section>
-
-                          {/* Distinct A4 Page Divider */}
-                          {pIdx < parsedDocxPages.length - 1 && (
-                            <div className="a4-page-divider w-full max-w-[794px] my-4 flex items-center justify-center gap-3 select-none">
-                              <div className="flex-1 h-[1.5px] bg-gradient-to-r from-transparent via-purple-300 to-purple-400" />
-                              <div className="px-4 py-1.5 rounded-full bg-purple-100/90 border border-purple-300 text-purple-800 text-[11px] font-bold flex items-center gap-2 shadow-xs">
-                                <FileText className="w-3.5 h-3.5 text-purple-600" />
-                                <span>
-                                  จบหน้ากระดาษที่ {page.pageNumber} (ขนาด A4) — ขึ้นหน้ากระดาษที่ {page.pageNumber + 1}
-                                </span>
-                              </div>
-                              <div className="flex-1 h-[1.5px] bg-gradient-to-l from-transparent via-purple-300 to-purple-400" />
-                            </div>
-                          )}
-                        </React.Fragment>
-                      ))}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     /* Option B: Authentic 3-Page A4 Thai Educational Academic Document Layout */

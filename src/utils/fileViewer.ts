@@ -383,11 +383,25 @@ export function openAuthenticFileInNewTab(
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   
-  <!-- High-speed local vendor assets with instant CDN failover for reliable Word/Excel rendering -->
-  <script src="/api/vendor/jszip.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';"></script>
-  <script src="/api/vendor/docx-preview.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/docx-preview@0.4.0/dist/docx-preview.js';"></script>
-  <!-- SheetJS for genuine client-side Excel spreadsheet rendering -->
-  <script src="/api/vendor/xlsx.full.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';"></script>
+  <!-- High-reliability CDN libraries for authentic Word, Excel and document rendering on Cloudflare & preview -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.4.0/dist/docx-preview.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    if (!window.JSZip) {
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\\/script>');
+    }
+  </script>
+  <script>
+    if (!window.docx) {
+      document.write('<script src="https://unpkg.com/docx-preview@0.4.0/dist/docx-preview.js"><\\/script>');
+    }
+  </script>
+  <script>
+    if (!window.XLSX) {
+      document.write('<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>');
+    }
+  </script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1056,139 +1070,9 @@ export function openAuthenticFileInNewTab(
       }
     }
 
-    // A4 Pagination Engine for docx-preview DOM
+    // A4 Pagination Engine for docx-preview DOM (Preserves genuine Word layout & sections)
     function paginateDocxContainer(container, docName) {
-      var wrapper = container.querySelector('.docx-wrapper') || container;
-      var sections = Array.from(wrapper.querySelectorAll('section.docx'));
-      if (sections.length === 0) {
-        sections = [wrapper];
-      }
-
-      var PAGE_MAX_H = 880; // Printable content budget per A4 page in px
-      var pagesData = [];
-
-      sections.forEach(function(sec) {
-        var children = Array.from(sec.children);
-        var curPage = [];
-        var curH = 0;
-
-        function flushPage() {
-          if (curPage.length > 0) {
-            pagesData.push(curPage);
-            curPage = [];
-            curH = 0;
-          }
-        }
-
-        children.forEach(function(node) {
-          var isBreak = (node.classList && (node.classList.contains('docx-page-break') || node.classList.contains('docx-break'))) ||
-                        (node.style && (node.style.pageBreakBefore === 'always' || node.style.pageBreakAfter === 'always')) ||
-                        (node.querySelector && node.querySelector('.docx-page-break'));
-
-          if (isBreak) {
-            flushPage();
-            return;
-          }
-
-          var nodeH = node.offsetHeight || 30;
-          if (curH + nodeH > PAGE_MAX_H && curPage.length > 0) {
-            if (node.tagName === 'TABLE') {
-              var rows = Array.from(node.querySelectorAll('tr'));
-              if (rows.length > 1) {
-                var thead = node.querySelector('thead');
-                var t1 = node.cloneNode(false);
-                if (thead) t1.appendChild(thead.cloneNode(true));
-                var tb1 = document.createElement('tbody');
-                t1.appendChild(tb1);
-
-                var t2 = node.cloneNode(false);
-                if (thead) t2.appendChild(thead.cloneNode(true));
-                var tb2 = document.createElement('tbody');
-                t2.appendChild(tb2);
-
-                rows.forEach(function(r) {
-                  if (thead && r.parentElement === thead) return;
-                  var rh = r.offsetHeight || 28;
-                  if (curH + rh <= PAGE_MAX_H) {
-                    tb1.appendChild(r.cloneNode(true));
-                    curH += rh;
-                  } else {
-                    tb2.appendChild(r.cloneNode(true));
-                  }
-                });
-
-                if (tb1.children.length > 0) {
-                  curPage.push(t1);
-                }
-                flushPage();
-                if (tb2.children.length > 0) {
-                  curPage.push(t2);
-                  curH = 120;
-                }
-                return;
-              }
-            }
-
-            flushPage();
-          }
-
-          curPage.push(node);
-          curH += (nodeH > 0 ? nodeH : 30);
-        });
-
-        flushPage();
-      });
-
-      if (pagesData.length === 0) {
-        fallbackPaginateDocxDOM(container, docName);
-        return;
-      }
-
-      var totalPages = pagesData.length;
-      wrapper.innerHTML = '';
-
-      pagesData.forEach(function(pageNodes, pIdx) {
-        var pNum = pIdx + 1;
-        var pageSheet = document.createElement('section');
-        pageSheet.className = 'docx a4-page-sheet';
-        pageSheet.id = 'a4-page-' + pNum;
-        pageSheet.setAttribute('data-page-no', pNum + ' / ' + totalPages);
-
-        var headerEl = document.createElement('div');
-        headerEl.className = 'a4-page-header-bar';
-        headerEl.innerHTML = '<span class="a4-page-header-docname">' + escapeHtml(docName || 'เอกสารต้นฉบับ') + '</span>' +
-          '<span class="a4-page-badge">หน้า ' + pNum + ' จาก ' + totalPages + ' (ขนาด A4)</span>';
-        pageSheet.appendChild(headerEl);
-
-        var contentBox = document.createElement('div');
-        contentBox.className = 'a4-page-content-box';
-        pageNodes.forEach(function(node) {
-          contentBox.appendChild(node);
-        });
-        pageSheet.appendChild(contentBox);
-
-        var footerEl = document.createElement('div');
-        footerEl.className = 'a4-page-footer-bar';
-        footerEl.innerHTML = '<span class="a4-footer-sys">ระบบงานวิชาการ • กระทรวงศึกษาธิการ</span>' +
-          '<span class="a4-footer-page-num">— หน้าที่ ' + pNum + ' —</span>';
-        pageSheet.appendChild(footerEl);
-
-        wrapper.appendChild(pageSheet);
-
-        if (pIdx < totalPages - 1) {
-          var divider = document.createElement('div');
-          divider.className = 'a4-page-divider';
-          divider.innerHTML = '<div class="a4-divider-line"></div>' +
-            '<div class="a4-divider-badge">' +
-              '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>' +
-              '<span>จบหน้ากระดาษที่ ' + pNum + ' (ขนาด A4) — ขึ้นหน้ากระดาษที่ ' + (pNum + 1) + '</span>' +
-            '</div>' +
-            '<div class="a4-divider-line"></div>';
-          wrapper.appendChild(divider);
-        }
-      });
-
-      setupStickyPageNavigator(totalPages);
+      fallbackPaginateDocxDOM(container, docName);
     }
 
     // A4 Pagination Engine for Fallback Text / Non-binary Documents
