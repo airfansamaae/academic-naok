@@ -15,7 +15,6 @@ import {
   User as UserIcon,
   Clock,
   CheckCircle,
-  ExternalLink,
   ShieldAlert
 } from 'lucide-react';
 import { 
@@ -355,16 +354,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({
                                   <Eye className="w-4 h-4" />
                                 </button>
 
-                                {/* Direct Google Drive button */}
-                                <a
-                                  href={file.viewUrl || (file.driveFileId ? `https://drive.google.com/file/d/${file.driveFileId}/view` : 'https://drive.google.com')}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title="เปิดไปยัง Google Drive ที่แสดงเฉพาะไฟล์นี้ (หน้าต่างใหม่)"
-                                  className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
-                                >
-                                  <ExternalLink className="w-4 h-4" />
-                                </a>
+                                
 
                                 {/* 1-Click Download Button */}
                                 <button

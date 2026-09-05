@@ -3,7 +3,11 @@ import {
   SEED_DOCX_RUBRICS,
   SEED_DOCX_TEMPLATE,
   SEED_XLSX_SCIENCE,
-  SEED_XLSX_MATH
+  SEED_XLSX_MATH,
+  SEED_PDF_LESSON_PLAN,
+  SEED_PDF_ACTION_RESEARCH,
+  SEED_PDF_ORDER_142,
+  SEED_PDF_THAI_SCORES
 } from './seedBinaries';
 
 export const INITIAL_SCHOOL_PROFILE: SchoolProfile = {
@@ -175,6 +179,7 @@ export const INITIAL_SUBMISSIONS: Submission[] = [
         viewUrl: 'https://drive.google.com/file/d/1IpsaGJ-sample-file-01/view',
         previewType: 'pdf',
         previewContent: 'เอกสารแผนการจัดการเรียนรู้บูรณาการ Active Learning\nรายวิชา ว22103 วิทยาการคำนวณ ชั้นมัธยมศึกษาปีที่ 2\nผู้สอน: นายสมชาย รักเรียน\n\nหน่วยที่ 1: การคิดเชิงคำนวณและการออกแบบอัลกอริทึม\nหน่วยที่ 2: การพัฒนาโครงงานคอมพิวเตอร์อย่างสร้างสรรค์\n\nจุดประสงค์การเรียนรู้: 1. ผู้เรียนสามารถวิเคราะห์ปัญหาและออกแบบผังงาน (Flowchart) ได้ถูกต้อง\n2. ผู้เรียนมีทักษะการทำงานร่วมกันเป็นทีมผ่านกระบวนการสะเต็มศึกษา (STEM)\n\nการวัดและประเมินผล: แบบประเมินชิ้นงาน แบบสังเกตพฤติกรรม และแบบทดสอบท้ายบท',
+        fileDataUrl: SEED_PDF_LESSON_PLAN,
         uploadedAt: '2026-08-28T14:20:00Z',
       },
       {
@@ -275,6 +280,7 @@ export const INITIAL_SUBMISSIONS: Submission[] = [
         viewUrl: 'https://drive.google.com/file/d/1IpsaGJ-sample-file-05/view',
         previewType: 'pdf',
         previewContent: 'แบบบันทึกผลการเรียนรายวิชา ท23101 ภาษาไทย 5\nชั้นมัธยมศึกษาปีที่ 3 ภาคเรียนที่ 1 ปีการศึกษา 2569\nผู้สอน: นายอรรถพล เพียรสร้าง\nสรุป: บันทึกคะแนนเก็บครบ 50 คะแนนแรก พร้อมผลการประเมินการอ่าน คิดวิเคราะห์',
+        fileDataUrl: SEED_PDF_THAI_SCORES,
         uploadedAt: '2026-08-24T16:00:00Z',
       }
     ],
@@ -330,6 +336,7 @@ export const INITIAL_DOCUMENTS: DocumentItem[] = [
       viewUrl: 'https://drive.google.com/file/d/1IpsaGJ-doc-sample-02/view',
       previewType: 'pdf',
       previewContent: 'รายงานการวิจัยในชั้นเรียน\nเรื่อง: การพัฒนาผลสัมฤทธิ์ทางการเรียนโดยใช้เกมมิฟิเคชัน (Gamification) ในห้องเรียนมัธยม\nบทคัดย่อ: การวิจัยนี้มีวัตถุประสงค์เพื่อเปรียบเทียบผลสัมฤทธิ์ก่อนและหลังเรียน\nกลุ่มตัวอย่างคือนักเรียนชั้น ม.2 จำนวน 35 คน\nผลการวิจัยพบว่าผลสัมฤทธิ์หลังเรียนสูงกว่าก่อนเรียนอย่างมีนัยสำคัญทางสถิติที่ระดับ .05',
+      fileDataUrl: SEED_PDF_ACTION_RESEARCH,
       uploadedAt: '2026-08-18T11:00:00Z',
       },
     createdAt: '2026-08-18T11:00:00Z',
@@ -355,6 +362,7 @@ export const INITIAL_DOCUMENTS: DocumentItem[] = [
       viewUrl: 'https://drive.google.com/file/d/1IpsaGJ-doc-order-03/view',
       previewType: 'pdf',
       previewContent: 'คำสั่งโรงเรียนสาธิตเทศบาลวิชาการ ที่ 142/2569\nเรื่อง แต่งตั้งคณะกรรมการนิเทศภายในและประเมินแผนการจัดการเรียนรู้\n\nเพื่อให้การบริหารจัดการหลักสูตรสถานศึกษาเป็นไปอย่างมีประสิทธิภาพ จึงแต่งตั้งบุคลากรดังต่อไปนี้:\n1. Admin ผู้ดูแลระบบ - ประธานกรรมการ\n2. หัวหน้ากลุ่มสาระการเรียนรู้ทุกกลุ่มสาระ - กรรมการ\n3. นายสมชาย รักเรียน - กรรมการและเลขานุการ\n\nสั่ง ณ วันที่ 20 สิงหาคม พ.ศ. 2569',
+      fileDataUrl: SEED_PDF_ORDER_142,
       uploadedAt: '2026-08-20T14:30:00Z',
     },
     createdAt: '2026-08-20T14:30:00Z',

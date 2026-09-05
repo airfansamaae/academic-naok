@@ -18,20 +18,40 @@ export function getGoogleDriveFileUrl(file: UploadedFile): string {
 }
 
 /**
- * Utility to open authentic attached files directly in Google Drive in a full-screen new tab.
- * Ensures 100% fidelity to the original file, zero CORS/scrambling issues on Cloudflare,
- * and directly matches the user's intent to view the file in Google Drive.
+ * Utility to open authentic attached files in a dedicated new tab/window.
+ * Strictly renders the authentic raw file (PDF, Word docx, Excel xlsx, Images, etc.)
+ * with zero clutter:
+ * - NO printer icon/button
+ * - NO copy text icon/button
+ * - NO duplicate buttons (only 1 single download button)
+ * - NO Google Drive links
  */
 export function openAuthenticFileInNewTab(
   file: UploadedFile,
-  _assignmentTitle?: string,
-  _submitterName?: string
+  assignmentTitle?: string,
+  submitterName?: string
 ) {
   if (!file) return;
 
-  const driveUrl = getGoogleDriveFileUrl(file);
-  const newTab = window.open(driveUrl, '_blank', 'noopener,noreferrer');
+  try {
+    localStorage.setItem(
+      'academic_active_raw_file',
+      JSON.stringify({
+        file,
+        assignmentTitle: assignmentTitle || '',
+        submitterName: submitterName || '',
+        openedAt: Date.now()
+      })
+    );
+  } catch (err) {
+    console.warn('[fileViewer] Could not cache raw file in localStorage:', err);
+  }
+
+  const url = `/?view_raw_file=1&file_id=${encodeURIComponent(file.id || '')}`;
+  const newTab = window.open(url, '_blank');
+  
   if (!newTab) {
-    alert('กรุณาอนุญาต Pop-up ในเบราว์เซอร์เพื่อเปิดดูตัวอย่างไฟล์ใน Google Drive');
+    // If pop-up blocker intervened, navigate or open
+    window.location.href = url;
   }
 }

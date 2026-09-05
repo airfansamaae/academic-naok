@@ -30,6 +30,9 @@ import {
   FilePreviewModal 
 } from './components/FilePreviewModal';
 import { 
+  DedicatedRawFileViewer 
+} from './components/DedicatedRawFileViewer';
+import { 
   LegendModal 
 } from './components/LegendModal';
 import { 
@@ -61,6 +64,12 @@ import { openAuthenticFileInNewTab } from './utils/fileViewer';
 import Swal from 'sweetalert2';
 
 export default function App() {
+  // If the window was opened in dedicated raw file viewer mode (?view_raw_file=1), render the raw authentic viewer immediately
+  const isViewRawFileMode = typeof window !== 'undefined' && window.location.search.includes('view_raw_file=1');
+  if (isViewRawFileMode) {
+    return <DedicatedRawFileViewer />;
+  }
+
   // Navigation State
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
 
@@ -204,18 +213,13 @@ export default function App() {
     };
   }, []);
 
-  // Open Preview Modal -> Opens authentic attached file in interactive A4 preview modal
+  // Open Preview in New Tab -> Opens authentic raw original file in a dedicated new window
   const handleOpenFilePreview = (
     file: UploadedFile,
     assignmentTitle?: string,
     uploaderName?: string
   ) => {
-    setPreviewModalData({
-      isOpen: true,
-      file,
-      assignmentTitle,
-      uploaderName
-    });
+    openAuthenticFileInNewTab(file, assignmentTitle, uploaderName);
   };
 
   // Handle Logout
