@@ -162,130 +162,24 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
   }, [file]);
 
-  if (!isOpen || !file) return null;
-
-  const totalPages = file.previewType === 'pdf' ? 3 : file.previewType === 'doc' ? 2 : 1;
-  const totalSlides = 4;
-
-  const handleDownload = () => {
-    Swal.fire({
-      icon: 'success',
-      title: 'กำลังดาวน์โหลดไฟล์ต้นฉบับ',
-      text: `ดาวน์โหลด ${file.name} เรียบร้อยแล้ว (Original Binary File)`,
-      timer: 1800,
-      showConfirmButton: false,
-      toast: true,
-      position: 'top-end',
-    });
-
-    triggerDirectDownload(file);
-  };
-
-  const handleOpenInNewTab = () => {
-    openAuthenticFileInNewTab(file, assignmentTitle, submitterName);
-  };
-
-  const handleCopyText = () => {
-    const textToCopy = textContent || file.previewContent || `ไฟล์เอกสาร: ${file.name}\nขนาด: ${(file.size / 1024).toFixed(1)} KB\nผู้ส่ง: ${submitterName || 'ฝ่ายวิชาการ'}`;
-    navigator.clipboard.writeText(textToCopy);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
-    Swal.fire({
-      icon: 'success',
-      title: 'คัดลอกข้อความแล้ว',
-      toast: true,
-      position: 'top-end',
-      timer: 1500,
-      showConfirmButton: false,
-    });
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (!bytes || bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
   const isRealDriveFile = Boolean(
-    file.driveFileId && 
+    file?.driveFileId && 
     !file.driveFileId.startsWith('drive_f_') && 
     !file.driveFileId.startsWith('mock_') &&
     !file.driveFileId.startsWith('1IpsaGJ-sample-') &&
     !file.driveFileId.startsWith('1IpsaGJ-doc-')
   );
 
-  const isPdf = file.previewType === 'pdf' || file.name.toLowerCase().endsWith('.pdf') || (file.mimeType && file.mimeType.includes('pdf'));
-  const isImage = file.previewType === 'image' || file.name.toLowerCase().match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || (file.mimeType && file.mimeType.includes('image'));
-  const isSpreadsheet = file.previewType === 'spreadsheet' || file.name.toLowerCase().match(/\.(xlsx|xls|csv)$/i) || (file.mimeType && file.mimeType.includes('sheet'));
-  const isPresentation = file.previewType === 'presentation' || file.name.toLowerCase().match(/\.(pptx|ppt)$/i) || (file.mimeType && file.mimeType.includes('presentation'));
-  const isDoc = file.previewType === 'doc' || file.name.toLowerCase().match(/\.(docx|doc)$/i) || (file.mimeType && file.mimeType.includes('word'));
+  const isPdf = Boolean(file && (file.previewType === 'pdf' || file.name.toLowerCase().endsWith('.pdf') || (file.mimeType && file.mimeType.includes('pdf'))));
+  const isImage = Boolean(file && (file.previewType === 'image' || file.name.toLowerCase().match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || (file.mimeType && file.mimeType.includes('image'))));
+  const isSpreadsheet = Boolean(file && (file.previewType === 'spreadsheet' || file.name.toLowerCase().match(/\.(xlsx|xls|csv)$/i) || (file.mimeType && file.mimeType.includes('sheet'))));
+  const isPresentation = Boolean(file && (file.previewType === 'presentation' || file.name.toLowerCase().match(/\.(pptx|ppt)$/i) || (file.mimeType && file.mimeType.includes('presentation'))));
+  const isDoc = Boolean(file && (file.previewType === 'doc' || file.name.toLowerCase().match(/\.(docx|doc)$/i) || (file.mimeType && file.mimeType.includes('word'))));
 
   // Determine sub-type for customized authentic layouts
-  const isOrderDoc = file.name.includes('คำสั่ง') || file.name.toLowerCase().includes('order');
-  const isResearchDoc = file.name.includes('วิจัย') || file.name.toLowerCase().includes('research');
-  const isLessonPlan = file.name.includes('แผน') || file.name.toLowerCase().includes('plan') || file.name.toLowerCase().includes('active');
-
-  // Student Score Mock List (for structured excel view)
-  const studentScores = [
-    { no: 1, code: '6901', name: 'เด็กชายกิตติศักดิ์ พรหมมินทร์', mid: 18.5, keep: 28.0, final: 27.5, trait: 19.0, total: 93.0, grade: '4.0', status: 'ผ่าน' },
-    { no: 2, code: '6902', name: 'เด็กชายจิรภัทร เจริญศิลป์', mid: 17.0, keep: 26.5, final: 25.0, trait: 18.5, total: 87.0, grade: '4.0', status: 'ผ่าน' },
-    { no: 3, code: '6903', name: 'เด็กหญิงชวัลรัตน์ สิทธิโชค', mid: 19.0, keep: 29.0, final: 28.5, trait: 20.0, total: 96.5, grade: '4.0', status: 'ผ่าน' },
-    { no: 4, code: '6904', name: 'เด็กหญิงณัชชา เลิศวิริยะ', mid: 16.5, keep: 25.0, final: 24.5, trait: 18.0, total: 84.0, grade: '4.0', status: 'ผ่าน' },
-    { no: 5, code: '6905', name: 'เด็กชายธนกร เกียรติอนันต์', mid: 15.0, keep: 24.0, final: 23.0, trait: 17.0, total: 79.0, grade: '3.5', status: 'ผ่าน' },
-    { no: 6, code: '6906', name: 'เด็กหญิงนภัสสร อริยทรัพย์', mid: 18.0, keep: 27.5, final: 26.5, trait: 19.5, total: 91.5, grade: '4.0', status: 'ผ่าน' },
-    { no: 7, code: '6907', name: 'เด็กชายปิติพัฒน์ แสงสว่าง', mid: 14.5, keep: 23.0, final: 22.0, trait: 16.5, total: 76.0, grade: '3.5', status: 'ผ่าน' },
-    { no: 8, code: '6908', name: 'เด็กหญิงภัทรวดี มงคลกุล', mid: 19.5, keep: 29.5, final: 29.0, trait: 20.0, total: 98.0, grade: '4.0', status: 'ผ่าน' },
-    { no: 9, code: '6909', name: 'เด็กชายวรเมธ ศิริวัฒน์', mid: 15.5, keep: 24.5, final: 23.5, trait: 17.5, total: 81.0, grade: '4.0', status: 'ผ่าน' },
-    { no: 10, code: '6910', name: 'เด็กหญิงศศิธร สุวรรณรัตน์', mid: 16.0, keep: 25.5, final: 24.0, trait: 18.0, total: 83.5, grade: '4.0', status: 'ผ่าน' },
-    { no: 11, code: '6911', name: 'เด็กชายสรวิชญ์ บรรดาศักดิ์', mid: 14.0, keep: 22.5, final: 21.0, trait: 16.0, total: 73.5, grade: '3.0', status: 'ผ่าน' },
-    { no: 12, code: '6912', name: 'เด็กหญิงอริสา วงศ์สวรรค์', mid: 17.5, keep: 27.0, final: 26.0, trait: 19.0, total: 89.5, grade: '4.0', status: 'ผ่าน' },
-  ].filter(s => s.name.includes(spreadsheetSearch) || s.code.includes(spreadsheetSearch));
-
-  // Determine if we have real binary data or real drive preview
-  const hasRealBinaryData = Boolean(blobUrl || file.fileDataUrl);
-
-  // Smooth scroll to a specific A4 page
-  const scrollToPage = (pageNum: number) => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    const targetPage = Math.max(1, Math.min(totalDetectedPages, pageNum));
-    const pages = container.querySelectorAll('.a4-page-sheet, .modal-docx-container .docx-wrapper > section.docx, .modal-docx-container section.docx');
-    if (pages[targetPage - 1]) {
-      const el = pages[targetPage - 1] as HTMLElement;
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setCurrentScrolledPage(targetPage);
-    }
-  };
-
-  // Real-time scroll observer to detect which A4 page is currently centered in viewport
-  const handleScroll = () => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    const containerTop = container.scrollTop;
-    const containerHeight = container.clientHeight;
-
-    const pages = container.querySelectorAll('.a4-page-sheet, .modal-docx-container .docx-wrapper > section.docx, .modal-docx-container section.docx');
-    if (pages.length > 0) {
-      if (pages.length !== totalDetectedPages) {
-        setTotalDetectedPages(pages.length);
-      }
-      let detected = 1;
-      pages.forEach((pageEl, idx) => {
-        const el = pageEl as HTMLElement;
-        const offsetTop = el.offsetTop - container.offsetTop;
-        if (containerTop + (containerHeight * 0.35) >= offsetTop) {
-          detected = idx + 1;
-        }
-      });
-      setCurrentScrolledPage(detected);
-    }
-  };
+  const isOrderDoc = Boolean(file && (file.name.includes('คำสั่ง') || file.name.toLowerCase().includes('order')));
+  const isResearchDoc = Boolean(file && (file.name.includes('วิจัย') || file.name.toLowerCase().includes('research')));
+  const isLessonPlan = Boolean(file && (file.name.includes('แผน') || file.name.toLowerCase().includes('plan') || file.name.toLowerCase().includes('active')));
 
   // Helper to construct fallback A4 pages if docx XML has no body elements
   const createFallbackDocxPages = (f: UploadedFile): DocxParsedPage[] => {
@@ -314,6 +208,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   };
 
   // Parse authentic DOCX directly without external script delays or infinite spinners
+  // Must remain at the top level with all other hooks to adhere to React Rules of Hooks
   useEffect(() => {
     if (!isOpen || !file || !isDoc) return;
 
@@ -352,6 +247,115 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       setDocxRenderError(false);
     }
   }, [file, isOpen, isDoc]);
+
+  const totalPages = file?.previewType === 'pdf' ? 3 : file?.previewType === 'doc' ? 2 : 1;
+  const totalSlides = 4;
+
+  const handleDownload = () => {
+    if (!file) return;
+    Swal.fire({
+      icon: 'success',
+      title: 'กำลังดาวน์โหลดไฟล์ต้นฉบับ',
+      text: `ดาวน์โหลด ${file.name} เรียบร้อยแล้ว (Original Binary File)`,
+      timer: 1800,
+      showConfirmButton: false,
+      toast: true,
+      position: 'top-end',
+    });
+
+    triggerDirectDownload(file);
+  };
+
+  const handleOpenInNewTab = () => {
+    if (!file) return;
+    openAuthenticFileInNewTab(file, assignmentTitle, submitterName);
+  };
+
+  const handleCopyText = () => {
+    if (!file) return;
+    const textToCopy = textContent || file.previewContent || `ไฟล์เอกสาร: ${file.name}\nขนาด: ${(file.size / 1024).toFixed(1)} KB\nผู้ส่ง: ${submitterName || 'ฝ่ายวิชาการ'}`;
+    navigator.clipboard.writeText(textToCopy);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+    Swal.fire({
+      icon: 'success',
+      title: 'คัดลอกข้อความแล้ว',
+      toast: true,
+      position: 'top-end',
+      timer: 1500,
+      showConfirmButton: false,
+    });
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (!bytes || bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Student Score Mock List (for structured excel view)
+  const studentScores = [
+    { no: 1, code: '6901', name: 'เด็กชายกิตติศักดิ์ พรหมมินทร์', mid: 18.5, keep: 28.0, final: 27.5, trait: 19.0, total: 93.0, grade: '4.0', status: 'ผ่าน' },
+    { no: 2, code: '6902', name: 'เด็กชายจิรภัทร เจริญศิลป์', mid: 17.0, keep: 26.5, final: 25.0, trait: 18.5, total: 87.0, grade: '4.0', status: 'ผ่าน' },
+    { no: 3, code: '6903', name: 'เด็กหญิงชวัลรัตน์ สิทธิโชค', mid: 19.0, keep: 29.0, final: 28.5, trait: 20.0, total: 96.5, grade: '4.0', status: 'ผ่าน' },
+    { no: 4, code: '6904', name: 'เด็กหญิงณัชชา เลิศวิริยะ', mid: 16.5, keep: 25.0, final: 24.5, trait: 18.0, total: 84.0, grade: '4.0', status: 'ผ่าน' },
+    { no: 5, code: '6905', name: 'เด็กชายธนกร เกียรติอนันต์', mid: 15.0, keep: 24.0, final: 23.0, trait: 17.0, total: 79.0, grade: '3.5', status: 'ผ่าน' },
+    { no: 6, code: '6906', name: 'เด็กหญิงนภัสสร อริยทรัพย์', mid: 18.0, keep: 27.5, final: 26.5, trait: 19.5, total: 91.5, grade: '4.0', status: 'ผ่าน' },
+    { no: 7, code: '6907', name: 'เด็กชายปิติพัฒน์ แสงสว่าง', mid: 14.5, keep: 23.0, final: 22.0, trait: 16.5, total: 76.0, grade: '3.5', status: 'ผ่าน' },
+    { no: 8, code: '6908', name: 'เด็กหญิงภัทรวดี มงคลกุล', mid: 19.5, keep: 29.5, final: 29.0, trait: 20.0, total: 98.0, grade: '4.0', status: 'ผ่าน' },
+    { no: 9, code: '6909', name: 'เด็กชายวรเมธ ศิริวัฒน์', mid: 15.5, keep: 24.5, final: 23.5, trait: 17.5, total: 81.0, grade: '4.0', status: 'ผ่าน' },
+    { no: 10, code: '6910', name: 'เด็กหญิงศศิธร สุวรรณรัตน์', mid: 16.0, keep: 25.5, final: 24.0, trait: 18.0, total: 83.5, grade: '4.0', status: 'ผ่าน' },
+    { no: 11, code: '6911', name: 'เด็กชายสรวิชญ์ บรรดาศักดิ์', mid: 14.0, keep: 22.5, final: 21.0, trait: 16.0, total: 73.5, grade: '3.0', status: 'ผ่าน' },
+    { no: 12, code: '6912', name: 'เด็กหญิงอริสา วงศ์สวรรค์', mid: 17.5, keep: 27.0, final: 26.0, trait: 19.0, total: 89.5, grade: '4.0', status: 'ผ่าน' },
+  ].filter(s => s.name.includes(spreadsheetSearch) || s.code.includes(spreadsheetSearch));
+
+  // Determine if we have real binary data or real drive preview
+  const hasRealBinaryData = Boolean(file && (blobUrl || file.fileDataUrl));
+
+  // Smooth scroll to a specific A4 page
+  const scrollToPage = (pageNum: number) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const targetPage = Math.max(1, Math.min(totalDetectedPages, pageNum));
+    const pages = container.querySelectorAll('.a4-page-sheet, .modal-docx-container .docx-wrapper > section.docx, .modal-docx-container section.docx');
+    if (pages[targetPage - 1]) {
+      const el = pages[targetPage - 1] as HTMLElement;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setCurrentScrolledPage(targetPage);
+    }
+  };
+
+  // Real-time scroll observer to detect which A4 page is currently centered in viewport
+  const handleScroll = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const containerTop = container.scrollTop;
+    const containerHeight = container.clientHeight;
+
+    const pages = container.querySelectorAll('.a4-page-sheet, .modal-docx-container .docx-wrapper > section.docx, .modal-docx-container section.docx');
+    if (pages.length > 0) {
+      if (pages.length !== totalDetectedPages) {
+        setTotalDetectedPages(pages.length);
+      }
+      let detected = 1;
+      pages.forEach((pageEl, idx) => {
+        const el = pageEl as HTMLElement;
+        const offsetTop = el.offsetTop - container.offsetTop;
+        if (containerTop + (containerHeight * 0.35) >= offsetTop) {
+          detected = idx + 1;
+        }
+      });
+      setCurrentScrolledPage(detected);
+    }
+  };
+
+  if (!isOpen || !file) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
