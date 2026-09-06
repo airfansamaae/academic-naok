@@ -1,28 +1,24 @@
 import { UploadedFile } from '../types';
 
-export interface RawFilePayload {
-  file: UploadedFile;
-  assignmentTitle?: string;
-  submitterName?: string;
-  openedAt: number;
-}
-
 /**
- * Standardized CSS definitions enforcing an authentic A4 viewing experience:
- * - Exact ISO 216 dimensions: 210mm × 297mm
- * - CSS Margin: 24px/32px vertical margin with auto-centering
- * - CSS Padding: 25.4mm vertical (1 inch) × 20mm horizontal standard academic margins
- * - Blocks all external UI overlays, floating toolbars, print dialogs, and copy popups
+ * Standardized CSS for direct A4 container viewing
+ * Strictly forces 210mm x 297mm dimensions, authentic academic margins (Top 25mm, Bottom 20mm, Left 25mm, Right 20mm),
+ * TH Sarabun font family, and eliminates Google Drive UI chrome (print, copy, sidebars).
  */
 export const STANDARDIZED_A4_CONTAINER_CSS = `
-  /* ISO 216 Standard A4 Dimensions: 210mm × 297mm */
-  :root {
-    --a4-width: 210mm;
-    --a4-min-height: 297mm;
-    --a4-margin-v: 24px;
-    --a4-margin-h: auto;
-    --a4-padding-v: 25.4mm; /* Standard 1-inch official margin */
-    --a4-padding-h: 20.0mm; /* Standard 20mm official margin */
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600;1,700&display=swap');
+
+  @font-face {
+    font-family: 'TH Sarabun New';
+    src: local('TH Sarabun New'), local('THSarabunNew'), local('Sarabun');
+    font-weight: normal;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'TH Sarabun New';
+    src: local('TH Sarabun New Bold'), local('THSarabunNew-Bold'), local('Sarabun-Bold');
+    font-weight: bold;
+    font-style: normal;
   }
 
   * {
@@ -32,36 +28,29 @@ export const STANDARDIZED_A4_CONTAINER_CSS = `
   }
 
   html, body {
-    margin: 0;
-    padding: 0;
+    width: 100%;
+    height: 100%;
     background-color: #020617;
     color: #0f172a;
-    font-family: 'Sarabun', 'TH Sarabun New', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', Tahoma, -apple-system, BlinkMacSystemFont, sans-serif;
     overflow-x: hidden;
-    -webkit-font-smoothing: antialiased;
   }
 
-  /* Fixed Navigation Header - ONLY 1 SINGLE GREEN DOWNLOAD BUTTON & CLOSE BUTTON */
+  /* TOP HEADER BAR: Single green download button, close button, title, and A4 badge */
   .a4-viewer-header {
     position: sticky;
     top: 0;
-    left: 0;
-    right: 0;
+    z-index: 50;
     width: 100%;
     height: 60px;
-    background: rgba(15, 23, 42, 0.95);
-    border-bottom: 1px solid #334155;
+    background-color: rgba(15, 23, 42, 0.95);
+    border-bottom: 1px solid #1e293b;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 20px;
-    z-index: 1000;
-    backdrop-filter: blur(8px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    padding: 0 24px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
   }
 
   .file-meta {
@@ -72,9 +61,9 @@ export const STANDARDIZED_A4_CONTAINER_CSS = `
   }
 
   .file-title {
-    color: #ffffff;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 700;
+    color: #f8fafc;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -152,22 +141,26 @@ export const STANDARDIZED_A4_CONTAINER_CSS = `
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 28px 16px 48px 16px;
+    padding: 28px 16px 64px 16px;
     box-sizing: border-box;
     background-color: #020617;
     overflow-y: auto;
   }
 
   /* STANDARDIZED CONTAINER WITH CSS MARGIN AND PADDING FORCING AN A4-LIKE VIEWING EXPERIENCE */
+  /* Dimensions: Strict A4 210mm x 297mm, Margins: Top 25mm, Bottom 20mm, Left 25mm, Right 20mm */
   .a4-standardized-container {
     width: 210mm !important;
     max-width: calc(100vw - 32px) !important;
     min-height: 297mm !important;
     margin: 24px auto !important;
-    padding: 25.4mm 20mm !important; /* Standard 1-inch official padding */
+    padding: 25mm 20mm 20mm 25mm !important;
     box-sizing: border-box !important;
     background: #ffffff !important;
     color: #0f172a !important;
+    font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif !important;
+    font-size: 16pt !important;
+    line-height: 1.6 !important;
     box-shadow: 0 10px 35px -5px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
     border-radius: 2px !important;
     position: relative !important;
@@ -198,7 +191,7 @@ export const STANDARDIZED_A4_CONTAINER_CSS = `
     max-width: calc(100vw - 32px) !important;
     min-height: 297mm !important;
     margin: 24px auto !important;
-    padding: 20mm !important;
+    padding: 25mm 20mm 20mm 25mm !important;
     box-sizing: border-box !important;
     background: #ffffff !important;
     box-shadow: 0 10px 35px -5px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
@@ -239,6 +232,63 @@ export const STANDARDIZED_A4_CONTAINER_CSS = `
     border: 1px solid #334155;
     border-radius: 9999px;
     color: #cbd5e1;
+  }
+
+  /* Table styling inside A4 sheets */
+  .a4-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1.5px solid #334155;
+    margin: 16px 0;
+    font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif;
+    font-size: 14pt;
+  }
+  .a4-table th {
+    background-color: #f1f5f9;
+    border: 1px solid #64748b;
+    padding: 8px 12px;
+    font-weight: bold;
+    text-align: center;
+    color: #0f172a;
+  }
+  .a4-table td {
+    border: 1px solid #64748b;
+    padding: 8px 12px;
+    text-align: left;
+    color: #1e293b;
+  }
+  .a4-table tr:nth-child(even) td {
+    background-color: #f8fafc;
+  }
+
+  /* Floating Scroll Page Indicator */
+  .floating-page-hud {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 18px;
+    background: rgba(15, 23, 42, 0.96);
+    border: 1px solid rgba(168, 85, 247, 0.5);
+    border-radius: 9999px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 500;
+    user-select: none;
+    backdrop-filter: blur(10px);
+  }
+  .floating-page-hud .page-chip {
+    font-weight: 700;
+    color: #fde047;
+    background: #1e293b;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid #334155;
   }
 
   /* STRICTLY BLOCK ALL UI OVERLAYS, FLOATING TOOLBARS, PRINT DIALOGS, COPY POPUPS */
@@ -353,13 +403,11 @@ export function buildStandardizedA4ViewerHtml(
   assignmentTitle?: string,
   submitterName?: string
 ): string {
-  const fileName = file.name || 'เอกสารทางวิชาการ';
-  const rawSrc = file.fileDataUrl || file.viewUrl || '';
+  const fileName = file.name || 'เอกสารต้นฉบับ';
+  const rawSrc = file.fileDataUrl || '';
   const lower = fileName.toLowerCase();
-  const isPdf = lower.endsWith('.pdf') || file.mimeType === 'application/pdf' || file.previewType === 'pdf';
+  const isPdf = lower.endsWith('.pdf') || file.previewType === 'pdf' || (file.mimeType && file.mimeType.includes('pdf'));
   const isImage = lower.match(/\.(png|jpg|jpeg|gif|webp|svg)$/) || file.previewType === 'image' || (file.mimeType && file.mimeType.includes('image'));
-  const isDocx = lower.endsWith('.docx') || file.previewType === 'doc';
-  const isSheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || file.previewType === 'spreadsheet';
 
   const drivePreviewUrl = getSafeGoogleDrivePreviewUrl(file);
   const displayTitle = assignmentTitle || fileName;
@@ -371,7 +419,7 @@ export function buildStandardizedA4ViewerHtml(
   if (isPdf) {
     const pdfUrl = rawSrc || drivePreviewUrl;
     rawContentHtml = `
-      <div class="a4-raw-embed-container">
+      <div class="a4-raw-embed-container" data-a4-page="1">
         <object
           data="${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH"
           type="application/pdf"
@@ -387,58 +435,107 @@ export function buildStandardizedA4ViewerHtml(
     `;
   } else if (isImage) {
     rawContentHtml = `
-      <div class="a4-image-container">
-        <div style="width: 100%; display: flex; justify-content: space-between; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
-          <span style="font-weight: 600; color: #334155;">${displayTitle}</span>
-          <span>ภาพแนบฉบับจริง • มาตรฐาน A4</span>
+      <div class="a4-image-container" data-a4-page="1">
+        <div style="width: 100%; display: flex; justify-content: space-between; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid #cbd5e1; font-size: 13pt; color: #475569; font-family: 'TH Sarabun New', Sarabun, sans-serif;">
+          <span style="font-weight: 700; color: #1e293b;">${displayTitle}</span>
+          <span style="background: #f1f5f9; padding: 2px 8px; border-radius: 4px; border: 1px solid #e2e8f0;">หน้า 1 / 1</span>
         </div>
         <div style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%;">
           <img
             src="${rawSrc}"
             alt="${fileName}"
-            style="max-width: 100%; max-height: 220mm; object-fit: contain; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);"
+            style="max-width: 100%; max-height: 220mm; object-fit: contain; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid #cbd5e1;"
           />
         </div>
-        <div style="width: 100%; display: flex; justify-content: space-between; padding-top: 12px; margin-top: 12px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8;">
+        <div style="width: 100%; display: flex; justify-content: space-between; padding-top: 12px; margin-top: 12px; border-top: 1px solid #cbd5e1; font-size: 12pt; color: #64748b; font-family: 'TH Sarabun New', Sarabun, sans-serif;">
           <span>ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.)</span>
-          <span style="font-weight: 600; color: #334155; background: #f1f5f9; padding: 2px 8px; border-radius: 4px;">หน้า 1 / 1</span>
+          <span style="font-weight: 600; color: #1e293b; background: #f1f5f9; padding: 2px 8px; border-radius: 4px;">หน้า 1 / 1</span>
         </div>
       </div>
     `;
   } else if (file.previewContent) {
-    // Render text or parsed content inside standardized A4 sheets with page separators
-    const paragraphs = file.previewContent.split('\n').filter(p => p.trim().length > 0);
-    const PARAGRAPHS_PER_PAGE = 8;
-    const totalPages = Math.max(1, Math.ceil(paragraphs.length / PARAGRAPHS_PER_PAGE));
+    // Render text or parsed content inside standardized A4 sheets with page separators and table parsing
+    const lines = file.previewContent.split('\n');
+    const elements: string[] = [];
+    let lIdx = 0;
+
+    while (lIdx < lines.length) {
+      const line = lines[lIdx].trim();
+      if (!line) {
+        lIdx++;
+        continue;
+      }
+
+      // Check for table lines
+      if (line.startsWith('|') || (line.includes('|') && line.split('|').length >= 3)) {
+        let tableHtml = '<table class="a4-table"><tbody>';
+        let isFirstRow = true;
+        while (lIdx < lines.length) {
+          const cur = lines[lIdx].trim();
+          if (!cur) break;
+          if (/^\|?(\s*:?-+:?\s*\|)+\s*$/.test(cur)) {
+            lIdx++;
+            continue;
+          }
+          if (cur.includes('|')) {
+            const cells = cur.split('|').map(c => c.trim()).filter((c, idx, arr) => idx > 0 && idx < arr.length - (cur.endsWith('|') ? 1 : 0) ? true : c.length > 0);
+            if (cells.length > 0) {
+              tableHtml += '<tr>';
+              cells.forEach(cell => {
+                if (isFirstRow) {
+                  tableHtml += `<th>${cell}</th>`;
+                } else {
+                  tableHtml += `<td>${cell}</td>`;
+                }
+              });
+              tableHtml += '</tr>';
+              isFirstRow = false;
+            }
+            lIdx++;
+          } else {
+            break;
+          }
+        }
+        tableHtml += '</tbody></table>';
+        elements.push(tableHtml);
+        continue;
+      }
+
+      // Check for titles and headings
+      const isTitle = line.startsWith('โครงสร้าง') || line.startsWith('รายงาน') || line.startsWith('คำสั่งโรงเรียน') || line.startsWith('แบบฟอร์ม');
+      const isHeading = /^\d+\./.test(line) || line.startsWith('เรื่อง:') || line.startsWith('บทคัดย่อ:');
+
+      if (isTitle) {
+        elements.push(`<h1 style="font-size: 20pt; font-weight: bold; text-align: center; margin-bottom: 12px; color: #0f172a;">${line}</h1>`);
+      } else if (isHeading) {
+        elements.push(`<h2 style="font-size: 18pt; font-weight: bold; margin-top: 14px; margin-bottom: 6px; color: #0f172a;">${line}</h2>`);
+      } else {
+        elements.push(`<p style="font-size: 16pt; text-indent: 1.5cm; margin-bottom: 10px; line-height: 1.6; text-align: justify; color: #1e293b;">${line}</p>`);
+      }
+      lIdx++;
+    }
+
+    const ELEMENTS_PER_PAGE = 8;
+    const totalPages = Math.max(1, Math.ceil(elements.length / ELEMENTS_PER_PAGE));
 
     const pagesHtml: string[] = [];
     for (let p = 0; p < totalPages; p++) {
-      const pageParagraphs = paragraphs.slice(p * PARAGRAPHS_PER_PAGE, (p + 1) * PARAGRAPHS_PER_PAGE);
-      const isFirst = p === 0;
+      const pageElements = elements.slice(p * ELEMENTS_PER_PAGE, (p + 1) * ELEMENTS_PER_PAGE);
 
       const pageHtml = `
-        <div class="a4-standardized-container">
-          <div style="display: flex; justify-content: space-between; padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; font-size: 11px; color: #64748b; user-select: none;">
-            <span style="font-weight: 600; color: #334155;">${displayTitle}</span>
-            <span>เอกสารทางวิชาการ • ฉบับจริง</span>
+        <div class="a4-standardized-container" data-a4-page="${p + 1}">
+          <div style="display: flex; justify-content: space-between; padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid #cbd5e1; font-size: 13pt; color: #475569; user-select: none;">
+            <span style="font-weight: 700; color: #1e293b;">${displayTitle}</span>
+            <span style="background: #f1f5f9; padding: 2px 8px; border-radius: 4px; border: 1px solid #e2e8f0;">หน้า ${p + 1}</span>
           </div>
 
-          <div style="flex: 1; line-height: 1.7; font-size: 15px; color: #0f172a;">
-            ${isFirst ? `
-              <div style="text-align: center; margin-bottom: 24px;">
-                <h1 style="font-size: 20px; font-weight: bold; color: #0f172a; margin-bottom: 8px;">${displayTitle}</h1>
-                <p style="font-size: 13px; color: #64748b;">${authorInfo}</p>
-              </div>
-            ` : ''}
-
-            ${pageParagraphs.map(para => `
-              <p style="text-indent: 2rem; margin-bottom: 14px; text-align: justify;">${para}</p>
-            `).join('')}
+          <div style="flex: 1; font-family: 'TH Sarabun New', Sarabun, sans-serif;">
+            ${pageElements.join('')}
           </div>
 
-          <div style="display: flex; justify-content: space-between; padding-top: 12px; margin-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; user-select: none;">
-            <span>ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.)</span>
-            <span style="font-weight: 600; color: #334155; background: #f1f5f9; padding: 2px 8px; border-radius: 4px;">หน้า ${p + 1} จาก ${totalPages}</span>
+          <div style="display: flex; justify-content: space-between; padding-top: 12px; margin-top: 16px; border-top: 1px solid #cbd5e1; font-size: 12pt; color: #64748b; user-select: none;">
+            <span>ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.) • Font: TH Sarabun</span>
+            <span style="font-weight: 600; color: #1e293b; background: #f1f5f9; padding: 2px 8px; border-radius: 4px;">หน้า ${p + 1} จาก ${totalPages}</span>
           </div>
         </div>
       `;
@@ -449,7 +546,7 @@ export function buildStandardizedA4ViewerHtml(
         pagesHtml.push(`
           <div class="a4-page-separator">
             <span class="a4-page-separator-badge">
-              ที่คั่นแบ่งหน้า • สิ้นสุดหน้า ${p + 1} (ขนาด A4 210 × 297 มม.)
+              ที่คั่นแบ่งหน้า • สิ้นสุดหน้า ${p + 1} (ขนาด A4 210 × 297 มม.) — เริ่มหน้า ${p + 2}
             </span>
           </div>
         `);
@@ -457,9 +554,8 @@ export function buildStandardizedA4ViewerHtml(
     }
     rawContentHtml = pagesHtml.join('');
   } else if (drivePreviewUrl) {
-    // Authentic Google Drive preview embedded directly in the A4 container with all chrome stripped
     rawContentHtml = `
-      <div class="a4-raw-embed-container">
+      <div class="a4-raw-embed-container" data-a4-page="1">
         <iframe
           src="${drivePreviewUrl}"
           style="width: 100%; height: 100%; border: none; background: #ffffff;"
@@ -469,12 +565,11 @@ export function buildStandardizedA4ViewerHtml(
       </div>
     `;
   } else {
-    // Fallback card inside standardized A4 container
     rawContentHtml = `
-      <div class="a4-standardized-container" style="justify-content: center; align-items: center; text-align: center;">
+      <div class="a4-standardized-container" data-a4-page="1" style="justify-content: center; align-items: center; text-align: center;">
         <div style="padding: 40px 20px;">
-          <h2 style="font-size: 18px; font-weight: bold; color: #0f172a; margin-bottom: 12px;">${fileName}</h2>
-          <p style="font-size: 14px; color: #64748b; margin-bottom: 24px;">เอกสารขนาด A4 พร้อมสำหรับการดาวน์โหลด</p>
+          <h2 style="font-size: 20pt; font-weight: bold; color: #0f172a; margin-bottom: 12px;">${fileName}</h2>
+          <p style="font-size: 16pt; color: #64748b; margin-bottom: 24px;">เอกสารขนาด A4 พร้อมสำหรับการดาวน์โหลด</p>
           <button
             onclick="downloadRawFile()"
             class="btn-single-download"
@@ -492,7 +587,7 @@ export function buildStandardizedA4ViewerHtml(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${fileName} - ดูไฟล์ต้นฉบับ (ขนาด A4)</title>
+  <title>${fileName} - ดูไฟล์ต้นฉบับ (ขนาด A4 210 × 297 มม.)</title>
   <style>
     ${STANDARDIZED_A4_CONTAINER_CSS}
   </style>
@@ -502,7 +597,7 @@ export function buildStandardizedA4ViewerHtml(
   <header class="a4-viewer-header">
     <div class="file-meta">
       <div class="file-title" title="${fileName}">${fileName}</div>
-      <div class="a4-badge">มาตรฐาน A4 (210 × 297 มม.)</div>
+      <div class="a4-badge">ขนาด A4 (210 × 297 มม.) • Font: TH Sarabun</div>
     </div>
     <div class="header-actions">
       <button id="btn-single-download" class="btn-single-download" onclick="downloadRawFile()">
@@ -524,11 +619,20 @@ export function buildStandardizedA4ViewerHtml(
   </header>
 
   <!-- STANDARDIZED A4 VIEWPORT STAGE -->
-  <main class="a4-stage-viewport">
+  <main id="a4-viewport" class="a4-stage-viewport">
     ${rawContentHtml}
   </main>
 
+  <!-- FLOATING SCROLL PAGE INDICATOR (เมื่อเลื่อนลงมา ก็จะมีหน้าให้เห็นว่า อยู่หน้าที่เท่าไร) -->
+  <div id="page-indicator" class="floating-page-hud" style="display: none;">
+    <span>กำลังดู: หน้า</span>
+    <span id="current-page-num" class="page-chip">1</span>
+    <span id="total-page-num" style="color: #94a3b8;">/ 1</span>
+    <span style="border-left: 1px solid #334155; padding-left: 8px; font-size: 11px; color: #cbd5e1;">A4 (210 × 297 มม.) • TH Sarabun</span>
+  </div>
+
   <script>
+    // Download handler
     function downloadRawFile() {
       const dataUrl = ${JSON.stringify(file.fileDataUrl || '')};
       const fileName = ${JSON.stringify(fileName)};
@@ -556,19 +660,40 @@ export function buildStandardizedA4ViewerHtml(
         document.body.removeChild(a);
       }
     }
+
+    // Dynamic Scroll Page Tracking (เมื่อเลื่อนลงมา ก็จะมีหน้าให้เห็นว่า อยู่หน้าที่เท่าไร)
+    (function() {
+      const pages = document.querySelectorAll('[data-a4-page]');
+      const hud = document.getElementById('page-indicator');
+      const curNum = document.getElementById('current-page-num');
+      const totNum = document.getElementById('total-page-num');
+      const viewport = document.getElementById('a4-viewport');
+
+      if (pages.length > 1 && hud && curNum && totNum && viewport) {
+        totNum.textContent = '/ ' + pages.length;
+        hud.style.display = 'flex';
+
+        viewport.addEventListener('scroll', function() {
+          const vTop = viewport.getBoundingClientRect().top + 160;
+          let active = 1;
+          pages.forEach(function(p, idx) {
+            const r = p.getBoundingClientRect();
+            if (r.top <= vTop && r.bottom >= viewport.getBoundingClientRect().top) {
+              active = idx + 1;
+            }
+          });
+          curNum.textContent = active;
+        });
+      }
+    })();
   </script>
 </body>
 </html>`;
 }
 
 /**
- * Utility to open authentic attached files directly in a dedicated new tab/window.
- * Strictly renders the authentic raw original file in a standardized container with CSS margin/padding
- * that forces an A4-like viewing experience (210mm × 297mm, 25.4mm × 20mm margins):
- * - STANDARDIZED A4 CONTAINER: CSS margin and padding force standard A4 page layout
- * - DIRECT RAW FILE SERVING: Directly loads raw Blob/Data URL or clean embed without Docs Viewer
- * - ZERO UI OVERLAYS: Strictly blocks printer dialogs, copy badges, and floating toolbars
- * - ONLY 1 SINGLE GREEN DOWNLOAD BUTTON
+ * Main action function: Opens authentic raw file in a new tab or browser window
+ * with strict standardized A4 container, no Google Docs Viewer, TH Sarabun font, and scroll tracking.
  */
 export function openAuthenticFileInNewTab(
   file: UploadedFile,
@@ -577,21 +702,18 @@ export function openAuthenticFileInNewTab(
 ) {
   if (!file) return;
 
-  const payload: RawFilePayload = {
+  const payload = {
     file,
-    assignmentTitle: assignmentTitle || '',
+    assignmentTitle: assignmentTitle || file.name,
     submitterName: submitterName || '',
-    openedAt: Date.now(),
+    timestamp: Date.now(),
   };
 
-  // 1. Cache in sessionStorage and localStorage for state persistence
+  // 1. Store in session and local caches so new tab can immediately resolve it
   try {
     sessionStorage.setItem('academic_active_raw_file', JSON.stringify(payload));
-  } catch {
-    // ignore
-  }
-  try {
     localStorage.setItem('academic_active_raw_file', JSON.stringify(payload));
+    (window as any).__LAST_ACTIVE_RAW_FILE__ = payload;
   } catch (err) {
     console.warn('[fileViewer] Cache storage warning:', err);
   }
@@ -602,41 +724,14 @@ export function openAuthenticFileInNewTab(
     file_id: file.id || '',
     name: file.name || '',
     mime: file.mimeType || '',
-    no_gdoc_viewer: '1',
-    rm: 'minimal',
-    a4_container: '1',
     title: assignmentTitle || '',
     uploader: submitterName || '',
   });
   const url = `/?${queryParams.toString()}`;
 
-  // 3. Generate standardized container A4 HTML document
-  const a4Html = buildStandardizedA4ViewerHtml(file, assignmentTitle, submitterName);
-
-  // 4. Open new window and ensure it uses the standardized container with CSS margin/padding
+  // 3. Open new tab directly with URL so it runs DedicatedRawFileViewer
   let newTab: Window | null = null;
   try {
-    newTab = window.open('', '_blank');
-    if (newTab && newTab.document) {
-      newTab.document.open();
-      newTab.document.write(a4Html);
-      newTab.document.close();
-      try {
-        (newTab as any).__RAW_FILE_PAYLOAD__ = payload;
-      } catch {
-        // ignore
-      }
-    } else {
-      newTab = window.open(url, '_blank');
-      if (newTab) {
-        try {
-          (newTab as any).__RAW_FILE_PAYLOAD__ = payload;
-        } catch {
-          // ignore
-        }
-      }
-    }
-  } catch {
     newTab = window.open(url, '_blank');
     if (newTab) {
       try {
@@ -645,19 +740,22 @@ export function openAuthenticFileInNewTab(
         // ignore
       }
     }
-  }
-
-  // 5. Provide opener references for fallback communication
-  try {
-    (window as any).__LAST_ACTIVE_RAW_FILE__ = payload;
   } catch {
-    // ignore
+    // popup blocker triggered
   }
 
-  // 6. Fallback if pop-up was completely blocked
+  // 4. Fallback if window.open was blocked: generate standardized container A4 HTML
   if (!newTab) {
-    window.location.href = url;
+    const a4Html = buildStandardizedA4ViewerHtml(file, assignmentTitle, submitterName);
+    try {
+      newTab = window.open('', '_blank');
+      if (newTab && newTab.document) {
+        newTab.document.open();
+        newTab.document.write(a4Html);
+        newTab.document.close();
+      }
+    } catch {
+      window.location.href = url;
+    }
   }
 }
-
-
