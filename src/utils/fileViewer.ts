@@ -8,11 +8,45 @@ export interface RawFilePayload {
 }
 
 /**
- * Returns the direct Google Drive view URL for an uploaded file
+ * Returns a clean Google Drive preview URL with minimal parameters
+ * strictly stripping Google Drive top chrome, print, and copy UI.
+ * NEVER routes through Google Docs Viewer (docs.google.com/viewer) which causes white screen issues.
+ */
+export function getSafeGoogleDrivePreviewUrl(file: UploadedFile): string {
+  if (!file) return '';
+  
+  let driveId = file.driveFileId;
+  if (!driveId && file.viewUrl) {
+    const match = file.viewUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (match) driveId = match[1];
+  }
+
+  if (driveId) {
+    // rm=minimal strips Google Drive navigation bar, print menu, and pop-out
+    return `https://drive.google.com/file/d/${driveId}/preview?rm=minimal&embedded=true`;
+  }
+
+  if (file.viewUrl && !file.viewUrl.includes('docs.google.com/viewer')) {
+    if (file.viewUrl.includes('/view')) {
+      return file.viewUrl.replace('/view', '/preview?rm=minimal&embedded=true');
+    }
+    return file.viewUrl;
+  }
+
+  return '';
+}
+
+/**
+ * Returns the direct Google Drive view URL for an uploaded file (for direct link references)
  */
 export function getGoogleDriveFileUrl(file: UploadedFile): string {
   if (!file) return 'https://drive.google.com';
   if (file.viewUrl && file.viewUrl.startsWith('http')) {
+    // Strip any inadvertent Google Docs Viewer prefixes
+    if (file.viewUrl.includes('docs.google.com/viewer?url=')) {
+      const actualUrl = decodeURIComponent(file.viewUrl.split('url=')[1]?.split('&')[0] || '');
+      if (actualUrl) return actualUrl;
+    }
     return file.viewUrl;
   }
   if (file.driveFileId) {
@@ -25,13 +59,15 @@ export function getGoogleDriveFileUrl(file: UploadedFile): string {
 }
 
 /**
- * Utility to open authentic attached files in a dedicated new tab/window.
- * Strictly renders the authentic raw file (PDF, Word docx, Excel xlsx, Images, etc.)
- * with zero clutter:
+ * Utility to open authentic attached files directly in a dedicated new tab/window.
+ * Strictly renders the authentic raw original file (A4-paginated DOCX, native PDF, XLSX workbook, Images)
+ * with zero clutter and zero white-screen failures:
+ * - DIRECT RAW FILE LOADING: Never passes through Google Docs Viewer
+ * - GOOGLE DRIVE UI DISABLED: Parameters set to rm=minimal&embedded=true to disable print and copy UI
+ * - A4 FORMATTED: Exact alignment with clear page separators and margins
  * - NO printer icon/button
  * - NO copy text icon/button
- * - NO duplicate buttons (only 1 single download button)
- * - NO Google Drive links
+ * - ONLY 1 single green download button
  */
 export function openAuthenticFileInNewTab(
   file: UploadedFile,
@@ -47,8 +83,21 @@ export function openAuthenticFileInNewTab(
     openedAt: Date.now(),
   };
 
-  // 1. Open new window immediately inside the user click handler to bypass pop-up blockers
-  const url = `/?view_raw_file=1&file_id=${encodeURIComponent(file.id || '')}`;
+  // Construct target URL with explicit parameters to prevent any fallback to Google Docs Viewer
+  const queryParams = new URLSearchParams({
+    view_raw_file: '1',
+    file_id: file.id || '',
+    name: file.name || '',
+    mime: file.mimeType || '',
+    no_gdoc_viewer: '1',
+    rm: 'minimal',
+    title: assignmentTitle || '',
+    uploader: submitterName || '',
+  });
+
+  const url = `/?${queryParams.toString()}`;
+
+  // 1. Open new window immediately inside user click handler to bypass pop-up blockers
   const newTab = window.open(url, '_blank');
 
   if (newTab) {
@@ -85,3 +134,4 @@ export function openAuthenticFileInNewTab(
     window.location.href = url;
   }
 }
+

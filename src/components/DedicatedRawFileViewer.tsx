@@ -7,13 +7,80 @@ import {
   FileImage, 
   File, 
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  ZoomIn,
+  ZoomOut,
+  Maximize2
 } from 'lucide-react';
 import { UploadedFile } from '../types';
 import { triggerDirectDownload, storage } from '../services/storageService';
 import { INITIAL_DOCUMENTS, INITIAL_SUBMISSIONS } from '../data/initialData';
 import { renderAsync } from 'docx-preview';
 import * as XLSX from 'xlsx';
+import { parseDocxBinary, DocxParsedPage, DocxElement } from '../utils/docxParser';
+import { getSafeGoogleDrivePreviewUrl } from '../utils/fileViewer';
+
+/**
+ * Helper to split text preview content into structured A4 pages
+ * with exact margins, centered headings, and standard paragraph flow.
+ */
+function createA4PagesFromText(text: string, defaultTitle?: string): DocxParsedPage[] {
+  if (!text) return [];
+
+  const lines = text.split('\n');
+  const elements: DocxElement[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const isTitle = 
+      trimmed.startsWith('โครงสร้าง') || 
+      trimmed.startsWith('รายงาน') || 
+      trimmed.startsWith('คำสั่งโรงเรียน') ||
+      trimmed.startsWith('แบบฟอร์ม') ||
+      trimmed.startsWith('แบบบันทึก') ||
+      trimmed.startsWith('เอกสารแผนการ');
+
+    const isHeading = 
+      /^\d+\./.test(trimmed) || 
+      trimmed.startsWith('เรื่อง:') || 
+      trimmed.startsWith('เรื่อง ') ||
+      trimmed.startsWith('บทคัดย่อ:') ||
+      trimmed.startsWith('หน่วยที่');
+
+    elements.push({
+      type: 'paragraph',
+      align: isTitle ? 'center' : 'left',
+      runs: [
+        {
+          text: trimmed,
+          bold: isTitle || isHeading,
+          fontSizePt: isTitle ? 18 : isHeading ? 15 : 13,
+        }
+      ]
+    });
+  }
+
+  // Paginate into A4 pages (max 10-12 items per A4 sheet)
+  const pages: DocxParsedPage[] = [];
+  let currentPage: DocxParsedPage = { pageNumber: 1, elements: [] };
+  const maxPerPage = 11;
+
+  for (const el of elements) {
+    currentPage.elements.push(el);
+    if (currentPage.elements.length >= maxPerPage) {
+      pages.push(currentPage);
+      currentPage = { pageNumber: pages.length + 1, elements: [] };
+    }
+  }
+
+  if (currentPage.elements.length > 0 || pages.length === 0) {
+    pages.push(currentPage);
+  }
+
+  return pages;
+}
 
 export const DedicatedRawFileViewer: React.FC = () => {
   const [file, setFile] = useState<UploadedFile | null>(null);
@@ -22,6 +89,11 @@ export const DedicatedRawFileViewer: React.FC = () => {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // A4 pagination state
+  const [parsedPages, setParsedPages] = useState<DocxParsedPage[]>([]);
+  const [zoomLevel, setZoomLevel] = useState<number>(100);
+  const [docxRenderMode, setDocxRenderMode] = useState<'a4-pages' | 'docx-preview'>('a4-pages');
 
   // Spreadsheet state
   const [sheetNames, setSheetNames] = useState<string[]>([]);
@@ -62,9 +134,9 @@ export const DedicatedRawFileViewer: React.FC = () => {
       // Tier 3: Check sessionStorage
       if (!resolvedFile) {
         try {
-          const sessionRaw = sessionStorage.getItem('academic_active_raw_file');
-          if (sessionRaw) {
-            const parsed = JSON.parse(sessionRaw);
+          const cachedSession = sessionStorage.getItem('academic_active_raw_file');
+          if (cachedSession) {
+            const parsed = JSON.parse(cachedSession);
             if (parsed?.file) {
               resolvedFile = parsed.file;
               resolvedTitle = parsed.assignmentTitle || '';
@@ -79,9 +151,9 @@ export const DedicatedRawFileViewer: React.FC = () => {
       // Tier 4: Check localStorage
       if (!resolvedFile) {
         try {
-          const localRaw = localStorage.getItem('academic_active_raw_file');
-          if (localRaw) {
-            const parsed = JSON.parse(localRaw);
+          const cachedLocal = localStorage.getItem('academic_active_raw_file');
+          if (cachedLocal) {
+            const parsed = JSON.parse(cachedLocal);
             if (parsed?.file) {
               resolvedFile = parsed.file;
               resolvedTitle = parsed.assignmentTitle || '';
@@ -93,10 +165,14 @@ export const DedicatedRawFileViewer: React.FC = () => {
         }
       }
 
-      // Tier 5: Query parameter lookup via storageService
+      // Tier 5: Check URL params with deep storage lookup
       if (!resolvedFile) {
         const params = new URLSearchParams(window.location.search);
         const fileId = params.get('file_id');
+        const urlName = params.get('name');
+        const urlMime = params.get('mime');
+        resolvedTitle = params.get('title') || '';
+        resolvedSubmitter = params.get('uploader') || '';
 
         if (fileId) {
           try {
@@ -105,8 +181,8 @@ export const DedicatedRawFileViewer: React.FC = () => {
             const foundDoc = docs.find((d) => d.file?.id === fileId);
             if (foundDoc?.file) {
               resolvedFile = foundDoc.file;
-              resolvedTitle = foundDoc.title || '';
-              resolvedSubmitter = foundDoc.uploaderName || '';
+              resolvedTitle = resolvedTitle || foundDoc.title || '';
+              resolvedSubmitter = resolvedSubmitter || foundDoc.uploaderName || '';
             }
 
             // Search in submissions
@@ -116,8 +192,8 @@ export const DedicatedRawFileViewer: React.FC = () => {
                 const f = sub.files?.find((item) => item.id === fileId);
                 if (f) {
                   resolvedFile = f;
-                  resolvedTitle = sub.assignmentTitle || '';
-                  resolvedSubmitter = sub.memberName || '';
+                  resolvedTitle = resolvedTitle || sub.assignmentTitle || '';
+                  resolvedSubmitter = resolvedSubmitter || sub.memberName || '';
                   break;
                 }
               }
@@ -128,8 +204,8 @@ export const DedicatedRawFileViewer: React.FC = () => {
               const initDoc = INITIAL_DOCUMENTS.find((d) => d.file?.id === fileId);
               if (initDoc?.file) {
                 resolvedFile = initDoc.file;
-                resolvedTitle = initDoc.title || '';
-                resolvedSubmitter = initDoc.uploaderName || '';
+                resolvedTitle = resolvedTitle || initDoc.title || '';
+                resolvedSubmitter = resolvedSubmitter || initDoc.uploaderName || '';
               }
             }
 
@@ -138,8 +214,8 @@ export const DedicatedRawFileViewer: React.FC = () => {
                 const f = sub.files?.find((item) => item.id === fileId);
                 if (f) {
                   resolvedFile = f;
-                  resolvedTitle = sub.assignmentTitle || '';
-                  resolvedSubmitter = sub.memberName || '';
+                  resolvedTitle = resolvedTitle || sub.assignmentTitle || '';
+                  resolvedSubmitter = resolvedSubmitter || sub.memberName || '';
                   break;
                 }
               }
@@ -147,6 +223,28 @@ export const DedicatedRawFileViewer: React.FC = () => {
           } catch (storageErr) {
             console.warn('[DedicatedRawFileViewer] Storage lookup error:', storageErr);
           }
+        }
+
+        // Tier 7: If fileId not found in storage, but urlName exists
+        if (!resolvedFile && urlName) {
+          const lower = urlName.toLowerCase();
+          const pType: UploadedFile['previewType'] = 
+            lower.endsWith('.pdf') ? 'pdf' :
+            lower.endsWith('.docx') || lower.endsWith('.doc') ? 'doc' :
+            lower.endsWith('.xlsx') || lower.endsWith('.xls') ? 'spreadsheet' :
+            lower.match(/\.(png|jpg|jpeg|gif|webp)$/) ? 'image' : 'other';
+
+          resolvedFile = {
+            id: fileId || 'url-file',
+            name: urlName,
+            size: 1024 * 1024,
+            mimeType: urlMime || 'application/octet-stream',
+            driveFileId: '',
+            downloadUrl: '',
+            viewUrl: '',
+            previewType: pType,
+            uploadedAt: new Date().toISOString(),
+          };
         }
       }
     }
@@ -161,7 +259,7 @@ export const DedicatedRawFileViewer: React.FC = () => {
     }
   }, []);
 
-  // 2. Process authentic raw binary data
+  // 2. Process authentic raw binary data and parse into A4 pages
   useEffect(() => {
     if (!file) return;
 
@@ -185,6 +283,11 @@ export const DedicatedRawFileViewer: React.FC = () => {
           }
         }
 
+        const lower = (file.name || '').toLowerCase();
+        const isDocx = lower.endsWith('.docx') || mimeType.includes('wordprocessingml') || file.previewType === 'doc';
+        const isSheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || mimeType.includes('spreadsheetml') || mimeType.includes('excel') || file.previewType === 'spreadsheet';
+        const isPdf = lower.endsWith('.pdf') || mimeType === 'application/pdf' || file.previewType === 'pdf';
+
         if (rawBase64) {
           const binaryString = atob(rawBase64);
           const bytes = new Uint8Array(binaryString.length);
@@ -197,23 +300,38 @@ export const DedicatedRawFileViewer: React.FC = () => {
           currentBlobUrl = URL.createObjectURL(blob);
           setBlobUrl(currentBlobUrl);
 
-          const lower = (file.name || '').toLowerCase();
-          const isDocx = lower.endsWith('.docx') || mimeType.includes('wordprocessingml') || file.previewType === 'doc';
-          const isSheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || mimeType.includes('spreadsheetml') || mimeType.includes('excel') || file.previewType === 'spreadsheet';
-
-          // Render Word Document (.docx)
-          if (isDocx && docxContainerRef.current) {
-            docxContainerRef.current.innerHTML = '';
+          // Render Word Document (.docx) - Authentic A4 Pagination
+          if (isDocx) {
             try {
-              await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
-                className: 'docx-page-canvas',
-                inWrapper: true,
-                ignoreWidth: false,
-                ignoreHeight: false,
-                breakPages: true
-              });
-            } catch (renderErr) {
-              console.warn('[DedicatedRawFileViewer] docx-preview parse failed, falling back:', renderErr);
+              // Parse directly into authentic A4 pages using our custom parser
+              const result = await parseDocxBinary(arrayBuffer);
+              if (result && result.pages && result.pages.length > 0) {
+                setParsedPages(result.pages);
+              } else if (file.previewContent) {
+                const textPages = createA4PagesFromText(file.previewContent, file.name);
+                setParsedPages(textPages);
+              }
+            } catch (pErr) {
+              console.warn('[DedicatedRawFileViewer] parseDocxBinary error, checking previewContent:', pErr);
+              if (file.previewContent) {
+                setParsedPages(createA4PagesFromText(file.previewContent, file.name));
+              }
+            }
+
+            // Also render with docx-preview as secondary DOM container
+            if (docxContainerRef.current) {
+              docxContainerRef.current.innerHTML = '';
+              try {
+                await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
+                  className: 'docx-page-canvas',
+                  inWrapper: true,
+                  ignoreWidth: false,
+                  ignoreHeight: false,
+                  breakPages: true
+                });
+              } catch (renderErr) {
+                console.warn('[DedicatedRawFileViewer] docx-preview renderAsync failed:', renderErr);
+              }
             }
           } else if (isSheet) {
             // Render Excel Spreadsheet (.xlsx / .xls)
@@ -232,9 +350,17 @@ export const DedicatedRawFileViewer: React.FC = () => {
             } catch (sheetErr) {
               console.warn('[DedicatedRawFileViewer] XLSX read failed:', sheetErr);
             }
+          } else if (isPdf && file.previewContent) {
+            // Provide A4 pages from text content alongside the native PDF
+            setParsedPages(createA4PagesFromText(file.previewContent, file.name));
           }
-        } else if (file.viewUrl) {
-          setBlobUrl(file.viewUrl);
+        } else if (file.previewContent) {
+          // If no raw base64 but previewContent exists (e.g. text documents)
+          setParsedPages(createA4PagesFromText(file.previewContent, file.name));
+        } else if (file.viewUrl || file.driveFileId) {
+          // Clean Google Drive preview URL with minimal parameters (NEVER Google Docs Viewer)
+          const safeUrl = getSafeGoogleDrivePreviewUrl(file);
+          setBlobUrl(safeUrl || file.viewUrl || null);
         } else {
           setError('ไฟล์นี้ไม่มีข้อมูลไบนารีต้นฉบับในหน่วยความจำ');
         }
@@ -262,12 +388,47 @@ export const DedicatedRawFileViewer: React.FC = () => {
   const isImage = lowerName.match(/\.(png|jpg|jpeg|gif|webp|svg)$/) || file?.previewType === 'image' || (file?.mimeType && file.mimeType.includes('image'));
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden font-sans select-none">
-      {/* HEADER BAR - Single download button, close button, NO printer, NO copy, NO duplicate buttons, NO Google Drive */}
-      <header className="h-16 shrink-0 bg-slate-950 border-b border-slate-800 px-4 sm:px-6 flex items-center justify-between gap-4 z-20 shadow-md">
+    <div className="h-screen w-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
+      {/* INJECTED STYLES FOR AUTHENTIC A4 SIZING & DOCX-PREVIEW PAGINATION */}
+      <style>{`
+        /* Authentic A4 Dimensions: 210mm × 297mm */
+        .a4-page-sheet {
+          width: 210mm !important;
+          max-width: 100% !important;
+          min-height: 297mm !important;
+          box-sizing: border-box !important;
+          background: #ffffff !important;
+          color: #0f172a !important;
+          font-family: 'TH Sarabun New', 'Sarabun', Tahoma, -apple-system, BlinkMacSystemFont, sans-serif !important;
+          box-shadow: 0 10px 35px -5px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
+        }
+
+        /* docx-preview wrapper styling to enforce A4 pagination */
+        .docx-wrapper {
+          background: transparent !important;
+          padding: 0 !important;
+        }
+        .docx-wrapper > section.docx {
+          width: 210mm !important;
+          max-width: 100% !important;
+          min-height: 297mm !important;
+          padding: 25.4mm 20mm !important;
+          margin: 32px auto !important;
+          background: white !important;
+          color: #0f172a !important;
+          box-shadow: 0 10px 35px -5px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
+          box-sizing: border-box !important;
+          position: relative !important;
+          font-family: 'TH Sarabun New', 'Sarabun', Tahoma, sans-serif !important;
+          line-height: 1.6 !important;
+        }
+      `}</style>
+
+      {/* HEADER BAR - Single download button, close button, zoom controls (STRICT: NO printer, NO copy, NO Google Docs Viewer) */}
+      <header className="h-16 shrink-0 bg-slate-900/95 border-b border-slate-800 px-4 sm:px-6 flex items-center justify-between gap-4 z-20 shadow-md backdrop-blur-md">
         {/* Left: Document Info */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="p-2.5 rounded-xl bg-slate-800/90 border border-slate-700/70 shrink-0 shadow-inner">
+          <div className="p-2.5 rounded-xl bg-slate-800 border border-slate-700/80 shrink-0 shadow-inner">
             {isPdf && <FileText className="w-5 h-5 text-rose-400" />}
             {isDocx && <FileText className="w-5 h-5 text-blue-400" />}
             {isSheet && <FileSpreadsheet className="w-5 h-5 text-emerald-400" />}
@@ -276,9 +437,16 @@ export const DedicatedRawFileViewer: React.FC = () => {
           </div>
 
           <div className="min-w-0">
-            <h1 className="text-sm sm:text-base font-bold text-white truncate max-w-[260px] sm:max-w-md lg:max-w-xl">
-              {file?.name || 'กำลังเปิดไฟล์ต้นฉบับ...'}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm sm:text-base font-bold text-white truncate max-w-[240px] sm:max-w-md lg:max-w-lg">
+                {file?.name || 'กำลังเปิดไฟล์ต้นฉบับ...'}
+              </h1>
+              {parsedPages.length > 0 && (
+                <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded-md border border-purple-800/50 shrink-0">
+                  ขนาด A4 ({parsedPages.length} หน้า)
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2 text-xs text-slate-400 truncate mt-0.5">
               {file?.size ? (
                 <span>{(file.size / (1024 * 1024)).toFixed(2)} MB</span>
@@ -301,8 +469,41 @@ export const DedicatedRawFileViewer: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Action: ONLY ONE Download Button & Close Window (STRICT: NO printer, NO copy, NO duplicate buttons, NO Google Drive) */}
-        <div className="flex items-center gap-2.5 shrink-0">
+        {/* Center/Right: Zoom & View Controls (for A4 pages) */}
+        <div className="flex items-center gap-2">
+          {(isDocx || parsedPages.length > 0) && (
+            <div className="hidden sm:flex items-center bg-slate-800/80 border border-slate-700/80 rounded-xl p-1 gap-1">
+              <button
+                type="button"
+                onClick={() => setZoomLevel((prev) => Math.max(60, prev - 15))}
+                title="ย่อขนาด"
+                className="p-1.5 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-colors cursor-pointer"
+              >
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-[11px] font-mono font-medium text-slate-300 px-1 min-w-[42px] text-center">
+                {zoomLevel}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setZoomLevel((prev) => Math.min(150, prev + 15))}
+                title="ขยายขนาด"
+                className="p-1.5 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-colors cursor-pointer"
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoomLevel(100)}
+                title="ขนาด A4 พอดี (100%)"
+                className="px-2 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-700 hover:text-white rounded-lg transition-colors cursor-pointer"
+              >
+                100% A4
+              </button>
+            </div>
+          )}
+
+          {/* Action Buttons: ONLY ONE Green Download Button & Close Window (STRICT: NO printer, NO copy, NO duplicate buttons) */}
           {file && (
             <button
               type="button"
@@ -360,34 +561,187 @@ export const DedicatedRawFileViewer: React.FC = () => {
 
         {!error && file && (
           <>
-            {/* 1. PDF VIEWER: Authentic PDF native engine via Blob URL */}
+            {/* 1. AUTHENTIC A4 PAGINATED VIEWER FOR WORD DOCX AND TEXT DOCUMENTS */}
+            {isDocx && (
+              <div className="flex-1 overflow-y-auto bg-slate-950 flex flex-col items-center py-8 px-4 sm:px-8">
+                {/* Mode Selector Pill */}
+                <div className="mb-6 flex items-center gap-2 bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs select-none shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setDocxRenderMode('a4-pages')}
+                    className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                      docxRenderMode === 'a4-pages'
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>การจัดหน้า A4 (แบ่งหน้าชัดเจน)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDocxRenderMode('docx-preview')}
+                    className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                      docxRenderMode === 'docx-preview'
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span>มุมมองเค้าโครงเดิม (docx-preview)</span>
+                  </button>
+                </div>
+
+                {/* Primary Mode: Authentic A4 Sheets with clear page break dividers and exact spacing */}
+                {docxRenderMode === 'a4-pages' && parsedPages.length > 0 && (
+                  <div 
+                    className="flex flex-col items-center w-full transition-transform duration-150 origin-top"
+                    style={{ transform: `scale(${zoomLevel / 100})` }}
+                  >
+                    {parsedPages.map((page, pageIdx) => (
+                      <React.Fragment key={page.pageNumber || pageIdx}>
+                        {/* A4 Sheet */}
+                        <div 
+                          className="a4-page-sheet rounded-xs p-10 sm:p-14 flex flex-col justify-between select-text relative"
+                          style={{ minHeight: '297mm' }}
+                        >
+                          {/* Official Top Watermark / Reference Header */}
+                          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 text-[11px] text-slate-500 select-none">
+                            <span className="font-semibold text-slate-700 truncate max-w-[380px]">
+                              {assignmentTitle || file.name}
+                            </span>
+                            <span className="shrink-0 text-slate-500">
+                              เอกสารทางวิชาการ • ฉบับจริง
+                            </span>
+                          </div>
+
+                          {/* Page Content Body */}
+                          <div className="flex-1 space-y-3.5 text-slate-900 leading-relaxed text-sm sm:text-base">
+                            {page.elements.map((el, elIdx) => {
+                              if (el.type === 'paragraph') {
+                                const isCenter = el.align === 'center';
+                                const isRight = el.align === 'right';
+                                const alignClass = isCenter ? 'text-center' : isRight ? 'text-right' : 'text-left';
+
+                                return (
+                                  <p 
+                                    key={elIdx} 
+                                    className={`${alignClass} ${!isCenter && !isRight ? 'indent-8' : ''} leading-relaxed`}
+                                  >
+                                    {el.runs.map((run, rIdx) => {
+                                      const style: React.CSSProperties = {};
+                                      if (run.bold) style.fontWeight = 'bold';
+                                      if (run.italic) style.fontStyle = 'italic';
+                                      if (run.underline) style.textDecoration = 'underline';
+                                      if (run.color) style.color = run.color;
+                                      if (run.fontSizePt) style.fontSize = `${run.fontSizePt * 1.15}px`;
+
+                                      return (
+                                        <span key={rIdx} style={style}>
+                                          {run.text}
+                                        </span>
+                                      );
+                                    })}
+                                  </p>
+                                );
+                              }
+
+                              if (el.type === 'table') {
+                                return (
+                                  <div key={elIdx} className="my-4 overflow-x-auto">
+                                    <table className="w-full border-collapse border border-slate-400 text-xs sm:text-sm">
+                                      <tbody>
+                                        {el.rows.map((row, rIdx) => (
+                                          <tr key={rIdx} className={rIdx === 0 ? 'bg-slate-100 font-bold' : ''}>
+                                            {row.map((cellText, cIdx) => (
+                                              <td 
+                                                key={cIdx} 
+                                                className="border border-slate-400 p-2.5 align-top text-slate-800"
+                                              >
+                                                {cellText}
+                                              </td>
+                                            ))}
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                );
+                              }
+
+                              if (el.type === 'image' && el.dataUrl) {
+                                return (
+                                  <div key={elIdx} className="my-3 flex justify-center">
+                                    <img 
+                                      src={el.dataUrl} 
+                                      alt="เอกสารแนบ" 
+                                      className="max-w-full max-h-[350px] object-contain border border-slate-300 rounded shadow-xs" 
+                                    />
+                                  </div>
+                                );
+                              }
+
+                              return null;
+                            })}
+                          </div>
+
+                          {/* Authentic A4 Page Footer with Page Number */}
+                          <div className="pt-4 mt-6 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-400 select-none">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                              ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.)
+                            </span>
+                            <span className="font-semibold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded border border-slate-200">
+                              หน้า {page.pageNumber || pageIdx + 1} จาก {parsedPages.length}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* DISTINCT A4 PAGE SEPARATOR BAR BETWEEN PAGES (มีที่คั่นหรือเว้น ขนาด A4 ชัดเจน) */}
+                        {pageIdx < parsedPages.length - 1 && (
+                          <div className="w-full max-w-[210mm] my-8 flex items-center justify-center gap-3 select-none">
+                            <div className="h-px bg-slate-700/60 flex-1" />
+                            <div className="flex items-center gap-2 px-4 py-1.5 bg-slate-800 border border-slate-700 rounded-full text-xs font-semibold text-slate-300 shadow-md">
+                              <FileText className="w-3.5 h-3.5 text-purple-400" />
+                              <span>ที่คั่นแบ่งหน้า • สิ้นสุดหน้า {page.pageNumber || pageIdx + 1} (ขนาด A4 210 × 297 มม.)</span>
+                            </div>
+                            <div className="h-px bg-slate-700/60 flex-1" />
+                          </div>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                )}
+
+                {/* Secondary Mode: Standard docx-preview wrapper */}
+                <div 
+                  className={`w-full flex justify-center ${docxRenderMode === 'docx-preview' ? 'block' : 'hidden'}`}
+                  style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
+                >
+                  <div 
+                    ref={docxContainerRef}
+                    className="docx-render-wrapper w-full flex flex-col items-center select-text"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* 2. AUTHENTIC PDF VIEWER (Direct Native Blob URL with toolbar=0 to disable browser print/copy chrome) */}
             {isPdf && blobUrl && (
-              <div className="w-full h-full bg-slate-900">
+              <div className="w-full h-full bg-slate-950 flex flex-col">
                 <object
-                  data={`${blobUrl}#toolbar=1`}
+                  data={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=1`}
                   type="application/pdf"
                   className="w-full h-full border-0"
                 >
                   <iframe
-                    src={`${blobUrl}#toolbar=1`}
-                    className="w-full h-full border-0 bg-slate-100"
+                    src={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=1`}
+                    className="w-full h-full border-0 bg-slate-900"
                     title={file.name}
                   />
                 </object>
               </div>
             )}
-
-            {/* 2. DOCX VIEWER: Authentic Word rendering via docx-preview (Always mounted in DOM) */}
-            <div 
-              className={`flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-900 flex justify-center ${
-                isDocx ? 'block' : 'hidden'
-              }`}
-            >
-              <div 
-                ref={docxContainerRef}
-                className="docx-render-wrapper max-w-4xl w-full bg-white text-slate-900 shadow-2xl rounded-sm min-h-[850px] p-6 sm:p-12 select-text font-serif leading-relaxed"
-              />
-            </div>
 
             {/* 3. EXCEL / SPREADSHEET VIEWER: Authentic workbook renderer */}
             {isSheet && (
@@ -471,35 +825,102 @@ export const DedicatedRawFileViewer: React.FC = () => {
               </div>
             )}
 
-            {/* 5. OTHER FILE TYPES: Text or Fallback Preview */}
+            {/* 5. OTHER FILE TYPES: Paginated A4 or Fallback Preview */}
             {!isPdf && !isDocx && !isSheet && !isImage && (
-              <div className="flex-1 overflow-auto p-6 flex justify-center bg-slate-950">
-                <div className="max-w-3xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 select-text">
-                  <div className="flex items-center gap-3 pb-4 border-b border-slate-800 mb-6">
-                    <File className="w-8 h-8 text-purple-400 shrink-0" />
-                    <div>
-                      <h2 className="text-base font-bold text-white">{file.name}</h2>
-                      <p className="text-xs text-slate-400">ประเภท: {file.mimeType || 'ไม่ระบุ'}</p>
-                    </div>
+              <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center bg-slate-950">
+                {parsedPages.length > 0 ? (
+                  <div 
+                    className="flex flex-col items-center w-full transition-transform duration-150 origin-top"
+                    style={{ transform: `scale(${zoomLevel / 100})` }}
+                  >
+                    {parsedPages.map((page, pageIdx) => (
+                      <React.Fragment key={pageIdx}>
+                        <div 
+                          className="a4-page-sheet rounded-xs p-10 sm:p-14 flex flex-col justify-between select-text relative"
+                          style={{ minHeight: '297mm' }}
+                        >
+                          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 text-[11px] text-slate-500 select-none">
+                            <span className="font-semibold text-slate-700 truncate max-w-[380px]">
+                              {assignmentTitle || file.name}
+                            </span>
+                            <span className="shrink-0 text-slate-500">
+                              เอกสารทางวิชาการ • ฉบับจริง
+                            </span>
+                          </div>
+
+                          <div className="flex-1 space-y-3 text-slate-900 leading-relaxed">
+                            {page.elements.map((el, elIdx) => (
+                              <p 
+                                key={elIdx} 
+                                className={`${el.type === 'paragraph' && el.align === 'center' ? 'text-center' : 'text-left indent-8'} leading-relaxed`}
+                              >
+                                {el.type === 'paragraph' && el.runs.map((r, rIdx) => (
+                                  <span 
+                                    key={rIdx} 
+                                    style={{ 
+                                      fontWeight: r.bold ? 'bold' : 'normal',
+                                      fontSize: r.fontSizePt ? `${r.fontSizePt * 1.15}px` : undefined
+                                    }}
+                                  >
+                                    {r.text}
+                                  </span>
+                                ))}
+                              </p>
+                            ))}
+                          </div>
+
+                          <div className="pt-4 mt-6 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-400 select-none">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                              ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.)
+                            </span>
+                            <span className="font-semibold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded border border-slate-200">
+                              หน้า {pageIdx + 1} จาก {parsedPages.length}
+                            </span>
+                          </div>
+                        </div>
+
+                        {pageIdx < parsedPages.length - 1 && (
+                          <div className="w-full max-w-[210mm] my-8 flex items-center justify-center gap-3 select-none">
+                            <div className="h-px bg-slate-700/60 flex-1" />
+                            <div className="flex items-center gap-2 px-4 py-1.5 bg-slate-800 border border-slate-700 rounded-full text-xs font-semibold text-slate-300 shadow-md">
+                              <FileText className="w-3.5 h-3.5 text-purple-400" />
+                              <span>ที่คั่นแบ่งหน้า • สิ้นสุดหน้า {pageIdx + 1} (ขนาด A4 210 × 297 มม.)</span>
+                            </div>
+                            <div className="h-px bg-slate-700/60 flex-1" />
+                          </div>
+                        )}
+                      </React.Fragment>
+                    ))}
                   </div>
-                  {file.previewContent ? (
-                    <pre className="whitespace-pre-wrap font-mono text-xs sm:text-sm text-slate-200 bg-slate-950 p-4 rounded-xl border border-slate-800/80 leading-relaxed overflow-x-auto">
-                      {file.previewContent}
-                    </pre>
-                  ) : (
-                    <div className="text-center py-10">
-                      <p className="text-sm text-slate-400 mb-4">ไฟล์ต้นฉบับพร้อมสำหรับการดาวน์โหลดเพื่อเปิดในแอปพลิเคชันของคุณ</p>
-                      <button
-                        type="button"
-                        onClick={() => triggerDirectDownload(file)}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl shadow-md transition-colors cursor-pointer"
-                      >
-                        <Download className="w-4 h-4" />
-                        <span>ดาวน์โหลดไฟล์ต้นฉบับ</span>
-                      </button>
+                ) : (
+                  <div className="max-w-3xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 select-text">
+                    <div className="flex items-center gap-3 pb-4 border-b border-slate-800 mb-6">
+                      <File className="w-8 h-8 text-purple-400 shrink-0" />
+                      <div>
+                        <h2 className="text-base font-bold text-white">{file.name}</h2>
+                        <p className="text-xs text-slate-400">ประเภท: {file.mimeType || 'ไม่ระบุ'}</p>
+                      </div>
                     </div>
-                  )}
-                </div>
+                    {file.previewContent ? (
+                      <pre className="whitespace-pre-wrap font-mono text-xs sm:text-sm text-slate-200 bg-slate-950 p-4 rounded-xl border border-slate-800/80 leading-relaxed overflow-x-auto">
+                        {file.previewContent}
+                      </pre>
+                    ) : (
+                      <div className="text-center py-10">
+                        <p className="text-sm text-slate-400 mb-4">ไฟล์ต้นฉบับพร้อมสำหรับการดาวน์โหลดเพื่อเปิดในแอปพลิเคชันของคุณ</p>
+                        <button
+                          type="button"
+                          onClick={() => triggerDirectDownload(file)}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl shadow-md transition-colors cursor-pointer"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>ดาวน์โหลดไฟล์ต้นฉบับ</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </>
