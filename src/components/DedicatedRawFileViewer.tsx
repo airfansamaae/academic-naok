@@ -726,20 +726,43 @@ export const DedicatedRawFileViewer: React.FC = () => {
               </div>
             )}
 
-            {/* 2. AUTHENTIC PDF VIEWER (Direct Native Blob URL with toolbar=0 to disable browser print/copy chrome) */}
+            {/* 2. AUTHENTIC PDF VIEWER (Standardized A4 container with CSS margin/padding, toolbar=0 to disable chrome) */}
             {isPdf && blobUrl && (
-              <div className="w-full h-full bg-slate-950 flex flex-col">
-                <object
-                  data={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=1`}
-                  type="application/pdf"
-                  className="w-full h-full border-0"
+              <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-slate-950">
+                <div 
+                  className="w-full max-w-[210mm] transition-transform duration-150 origin-top flex flex-col items-center"
+                  style={{ transform: `scale(${zoomLevel / 100})` }}
                 >
-                  <iframe
-                    src={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=1`}
-                    className="w-full h-full border-0 bg-slate-900"
-                    title={file.name}
-                  />
-                </object>
+                  <div 
+                    className="a4-raw-embed-container"
+                    style={{
+                      width: '210mm',
+                      maxWidth: '100%',
+                      height: '297mm',
+                      minHeight: '297mm',
+                      margin: '24px auto',
+                      padding: 0,
+                      boxSizing: 'border-box',
+                      backgroundColor: '#ffffff',
+                      boxShadow: '0 10px 35px -5px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08)',
+                      borderRadius: '2px',
+                      overflow: 'hidden',
+                      position: 'relative',
+                    }}
+                  >
+                    <object
+                      data={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
+                      type="application/pdf"
+                      className="w-full h-full border-0"
+                    >
+                      <iframe
+                        src={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
+                        className="w-full h-full border-0 bg-white"
+                        title={file.name}
+                      />
+                    </object>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -814,14 +837,54 @@ export const DedicatedRawFileViewer: React.FC = () => {
               </div>
             )}
 
-            {/* 4. IMAGE VIEWER: Authentic high-res image canvas */}
+            {/* 4. IMAGE VIEWER: Standardized A4 container with CSS margin/padding */}
             {isImage && (
-              <div className="flex-1 flex items-center justify-center p-6 overflow-auto bg-slate-950">
-                <img
-                  src={file.fileDataUrl || blobUrl || ''}
-                  alt={file.name}
-                  className="max-w-full max-h-full object-contain rounded-lg shadow-2xl border border-slate-800"
-                />
+              <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-slate-950">
+                <div 
+                  className="w-full max-w-[210mm] transition-transform duration-150 origin-top flex flex-col items-center"
+                  style={{ transform: `scale(${zoomLevel / 100})` }}
+                >
+                  <div 
+                    className="a4-page-sheet rounded-xs flex flex-col justify-between select-none relative"
+                    style={{
+                      width: '210mm',
+                      maxWidth: '100%',
+                      minHeight: '297mm',
+                      margin: '24px auto',
+                      padding: '25.4mm 20mm',
+                      boxSizing: 'border-box',
+                      background: '#ffffff',
+                      boxShadow: '0 10px 35px -5px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08)',
+                    }}
+                  >
+                    <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 text-[11px] text-slate-500">
+                      <span className="font-semibold text-slate-700 truncate max-w-[380px]">
+                        {assignmentTitle || file.name}
+                      </span>
+                      <span className="shrink-0 text-slate-500">
+                        ภาพแนบฉบับจริง • มาตรฐาน A4
+                      </span>
+                    </div>
+
+                    <div className="flex-1 flex items-center justify-center p-4">
+                      <img
+                        src={file.fileDataUrl || blobUrl || ''}
+                        alt={file.name}
+                        className="max-w-full max-h-[200mm] object-contain rounded shadow-sm border border-slate-200"
+                      />
+                    </div>
+
+                    <div className="pt-4 mt-4 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-400">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                        ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.)
+                      </span>
+                      <span className="font-semibold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded border border-slate-200">
+                        หน้า 1 / 1
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
