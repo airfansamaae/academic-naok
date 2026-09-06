@@ -388,6 +388,7 @@ export const INITIAL_DOCUMENTS: DocumentItem[] = [
       viewUrl: 'https://drive.google.com/file/d/1IpsaGJ-doc-order-04/view',
       previewType: 'pdf',
       previewContent: 'คำสั่งโรงเรียนสาธิตเทศบาลวิชาการ ที่ 148/2569\nเรื่อง มอบหมายหน้าที่ปฏิบัติการสอนและครูที่ปรึกษา\n\nให้ข้าราชการครูปฏิบัติหน้าที่ตามตารางสอนภาคเรียนที่ 1/2569 ตามเอกสารแนบท้ายนี้...',
+      fileDataUrl: SEED_PDF_ORDER_142,
       uploadedAt: '2026-08-22T08:15:00Z',
     },
     createdAt: '2026-08-22T08:15:00Z',

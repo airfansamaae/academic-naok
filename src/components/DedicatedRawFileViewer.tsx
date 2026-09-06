@@ -10,7 +10,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { UploadedFile } from '../types';
-import { triggerDirectDownload } from '../services/storageService';
+import { triggerDirectDownload, storage } from '../services/storageService';
+import { INITIAL_DOCUMENTS, INITIAL_SUBMISSIONS } from '../data/initialData';
 import { renderAsync } from 'docx-preview';
 import * as XLSX from 'xlsx';
 
@@ -29,60 +30,138 @@ export const DedicatedRawFileViewer: React.FC = () => {
 
   const docxContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load file data from localStorage cache or fallback
+  // 1. Multi-tier resolution to guarantee authentic raw file is retrieved without fail
   useEffect(() => {
-    try {
-      const cached = localStorage.getItem('academic_active_raw_file');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && parsed.file) {
-          setFile(parsed.file);
-          if (parsed.assignmentTitle) setAssignmentTitle(parsed.assignmentTitle);
-          if (parsed.submitterName) setSubmitterName(parsed.submitterName);
-          return;
+    let resolvedFile: UploadedFile | null = null;
+    let resolvedTitle = '';
+    let resolvedSubmitter = '';
+
+    // Tier 1: Check window payload attached by opener
+    if (typeof window !== 'undefined') {
+      const winPayload = (window as any).__RAW_FILE_PAYLOAD__;
+      if (winPayload?.file) {
+        resolvedFile = winPayload.file;
+        resolvedTitle = winPayload.assignmentTitle || '';
+        resolvedSubmitter = winPayload.submitterName || '';
+      }
+
+      // Tier 2: Check window.opener memory reference
+      if (!resolvedFile && window.opener) {
+        try {
+          const openerPayload = (window.opener as any).__LAST_ACTIVE_RAW_FILE__;
+          if (openerPayload?.file) {
+            resolvedFile = openerPayload.file;
+            resolvedTitle = openerPayload.assignmentTitle || '';
+            resolvedSubmitter = openerPayload.submitterName || '';
+          }
+        } catch {
+          // ignore cross-origin opener
         }
       }
 
-      // Check URL search params for file_id
-      const params = new URLSearchParams(window.location.search);
-      const fileId = params.get('file_id');
-      if (fileId) {
-        // Look up in documents or submissions
-        const docsRaw = localStorage.getItem('academic_documents_v1');
-        if (docsRaw) {
-          const docs = JSON.parse(docsRaw);
-          const found = docs.find((d: any) => d.file && d.file.id === fileId);
-          if (found) {
-            setFile(found.file);
-            setAssignmentTitle(found.title || '');
-            setSubmitterName(found.uploaderName || '');
-            return;
-          }
-        }
-        const subsRaw = localStorage.getItem('academic_submissions_v1');
-        if (subsRaw) {
-          const subs = JSON.parse(subsRaw);
-          for (const s of subs) {
-            const f = s.files?.find((fileItem: any) => fileItem.id === fileId);
-            if (f) {
-              setFile(f);
-              setAssignmentTitle(s.assignmentTitle || '');
-              setSubmitterName(s.memberName || '');
-              return;
+      // Tier 3: Check sessionStorage
+      if (!resolvedFile) {
+        try {
+          const sessionRaw = sessionStorage.getItem('academic_active_raw_file');
+          if (sessionRaw) {
+            const parsed = JSON.parse(sessionRaw);
+            if (parsed?.file) {
+              resolvedFile = parsed.file;
+              resolvedTitle = parsed.assignmentTitle || '';
+              resolvedSubmitter = parsed.submitterName || '';
             }
           }
+        } catch {
+          // ignore
         }
       }
 
-      setError('ไม่พบข้อมูลไฟล์ที่ต้องการแสดง กรุณากลับไปที่หน้าหลักแล้วคลิกดูใหม่อีกครั้ง');
-    } catch (e: any) {
-      setError('เกิดข้อผิดพลาดในการโหลดไฟล์: ' + (e?.message || ''));
-    } finally {
+      // Tier 4: Check localStorage
+      if (!resolvedFile) {
+        try {
+          const localRaw = localStorage.getItem('academic_active_raw_file');
+          if (localRaw) {
+            const parsed = JSON.parse(localRaw);
+            if (parsed?.file) {
+              resolvedFile = parsed.file;
+              resolvedTitle = parsed.assignmentTitle || '';
+              resolvedSubmitter = parsed.submitterName || '';
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Tier 5: Query parameter lookup via storageService
+      if (!resolvedFile) {
+        const params = new URLSearchParams(window.location.search);
+        const fileId = params.get('file_id');
+
+        if (fileId) {
+          try {
+            // Search in documents
+            const docs = storage.getDocuments();
+            const foundDoc = docs.find((d) => d.file?.id === fileId);
+            if (foundDoc?.file) {
+              resolvedFile = foundDoc.file;
+              resolvedTitle = foundDoc.title || '';
+              resolvedSubmitter = foundDoc.uploaderName || '';
+            }
+
+            // Search in submissions
+            if (!resolvedFile) {
+              const subs = storage.getSubmissions();
+              for (const sub of subs) {
+                const f = sub.files?.find((item) => item.id === fileId);
+                if (f) {
+                  resolvedFile = f;
+                  resolvedTitle = sub.assignmentTitle || '';
+                  resolvedSubmitter = sub.memberName || '';
+                  break;
+                }
+              }
+            }
+
+            // Tier 6: Direct Initial Data seeds lookup
+            if (!resolvedFile) {
+              const initDoc = INITIAL_DOCUMENTS.find((d) => d.file?.id === fileId);
+              if (initDoc?.file) {
+                resolvedFile = initDoc.file;
+                resolvedTitle = initDoc.title || '';
+                resolvedSubmitter = initDoc.uploaderName || '';
+              }
+            }
+
+            if (!resolvedFile) {
+              for (const sub of INITIAL_SUBMISSIONS) {
+                const f = sub.files?.find((item) => item.id === fileId);
+                if (f) {
+                  resolvedFile = f;
+                  resolvedTitle = sub.assignmentTitle || '';
+                  resolvedSubmitter = sub.memberName || '';
+                  break;
+                }
+              }
+            }
+          } catch (storageErr) {
+            console.warn('[DedicatedRawFileViewer] Storage lookup error:', storageErr);
+          }
+        }
+      }
+    }
+
+    if (resolvedFile) {
+      setFile(resolvedFile);
+      if (resolvedTitle) setAssignmentTitle(resolvedTitle);
+      if (resolvedSubmitter) setSubmitterName(resolvedSubmitter);
+    } else {
+      setError('ไม่พบข้อมูลไฟล์ต้นฉบับที่ต้องการเปิด กรุณากลับไปที่หน้าหลักแล้วลองใหม่อีกครั้ง');
       setLoading(false);
     }
   }, []);
 
-  // When file is loaded, process its authentic raw binary
+  // 2. Process authentic raw binary data
   useEffect(() => {
     if (!file) return;
 
@@ -93,70 +172,71 @@ export const DedicatedRawFileViewer: React.FC = () => {
       setError(null);
 
       try {
-        if (!file.fileDataUrl || !file.fileDataUrl.startsWith('data:')) {
-          // If no data URL, check if there is an embeddable viewUrl
-          if (file.viewUrl) {
-            setBlobUrl(file.viewUrl);
+        let rawBase64 = '';
+        let mimeType = file.mimeType || 'application/octet-stream';
+
+        if (file.fileDataUrl) {
+          if (file.fileDataUrl.startsWith('data:')) {
+            const parts = file.fileDataUrl.split(';base64,');
+            mimeType = parts[0].replace('data:', '') || mimeType;
+            rawBase64 = parts[1] || '';
           } else {
-            setError('ไฟล์นี้ไม่มีข้อมูลไบนารีต้นฉบับในหน่วยความจำ');
+            rawBase64 = file.fileDataUrl;
           }
-          setLoading(false);
-          return;
         }
 
-        // Convert base64 data URL to ArrayBuffer & Blob
-        const parts = file.fileDataUrl.split(';base64,');
-        const mimeType = parts[0].replace('data:', '') || file.mimeType || 'application/octet-stream';
-        const rawBase64 = parts[1];
-
-        if (!rawBase64) {
-          throw new Error('ไม่พบข้อมูล Base64 ในไฟล์ต้นฉบับ');
-        }
-
-        const binaryString = atob(rawBase64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        const arrayBuffer = bytes.buffer;
-
-        const blob = new Blob([bytes], { type: mimeType });
-        currentBlobUrl = URL.createObjectURL(blob);
-        setBlobUrl(currentBlobUrl);
-
-        const lower = (file.name || '').toLowerCase();
-        const isDocx = lower.endsWith('.docx') || mimeType.includes('wordprocessingml');
-        const isSheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || mimeType.includes('spreadsheetml') || mimeType.includes('excel');
-
-        if (isDocx && docxContainerRef.current) {
-          docxContainerRef.current.innerHTML = '';
-          try {
-            await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
-              className: 'docx-page-canvas',
-              inWrapper: true,
-              ignoreWidth: false,
-              ignoreHeight: false,
-              breakPages: true
-            });
-          } catch (renderErr) {
-            console.warn('[DedicatedRawFileViewer] docx-preview parse failed, falling back:', renderErr);
+        if (rawBase64) {
+          const binaryString = atob(rawBase64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
           }
-        } else if (isSheet) {
-          try {
-            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-            const sheetsMap: { [sheet: string]: any[][] } = {};
-            workbook.SheetNames.forEach(name => {
-              const sheet = workbook.Sheets[name];
-              sheetsMap[name] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-            });
-            setSheetNames(workbook.SheetNames);
-            setSheetData(sheetsMap);
-            if (workbook.SheetNames.length > 0) {
-              setActiveSheet(workbook.SheetNames[0]);
+          const arrayBuffer = bytes.buffer;
+
+          const blob = new Blob([bytes], { type: mimeType });
+          currentBlobUrl = URL.createObjectURL(blob);
+          setBlobUrl(currentBlobUrl);
+
+          const lower = (file.name || '').toLowerCase();
+          const isDocx = lower.endsWith('.docx') || mimeType.includes('wordprocessingml') || file.previewType === 'doc';
+          const isSheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || mimeType.includes('spreadsheetml') || mimeType.includes('excel') || file.previewType === 'spreadsheet';
+
+          // Render Word Document (.docx)
+          if (isDocx && docxContainerRef.current) {
+            docxContainerRef.current.innerHTML = '';
+            try {
+              await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
+                className: 'docx-page-canvas',
+                inWrapper: true,
+                ignoreWidth: false,
+                ignoreHeight: false,
+                breakPages: true
+              });
+            } catch (renderErr) {
+              console.warn('[DedicatedRawFileViewer] docx-preview parse failed, falling back:', renderErr);
             }
-          } catch (sheetErr) {
-            console.warn('[DedicatedRawFileViewer] XLSX read failed:', sheetErr);
+          } else if (isSheet) {
+            // Render Excel Spreadsheet (.xlsx / .xls)
+            try {
+              const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+              const sheetsMap: { [sheet: string]: any[][] } = {};
+              workbook.SheetNames.forEach((name) => {
+                const sheet = workbook.Sheets[name];
+                sheetsMap[name] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+              });
+              setSheetNames(workbook.SheetNames);
+              setSheetData(sheetsMap);
+              if (workbook.SheetNames.length > 0) {
+                setActiveSheet(workbook.SheetNames[0]);
+              }
+            } catch (sheetErr) {
+              console.warn('[DedicatedRawFileViewer] XLSX read failed:', sheetErr);
+            }
           }
+        } else if (file.viewUrl) {
+          setBlobUrl(file.viewUrl);
+        } else {
+          setError('ไฟล์นี้ไม่มีข้อมูลไบนารีต้นฉบับในหน่วยความจำ');
         }
       } catch (err: any) {
         console.error('[DedicatedRawFileViewer] Error parsing raw file:', err);
@@ -176,18 +256,18 @@ export const DedicatedRawFileViewer: React.FC = () => {
   }, [file]);
 
   const lowerName = (file?.name || '').toLowerCase();
-  const isPdf = lowerName.endsWith('.pdf') || file?.previewType === 'pdf';
-  const isDocx = lowerName.endsWith('.docx') || file?.previewType === 'doc';
-  const isSheet = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls') || file?.previewType === 'spreadsheet';
-  const isImage = lowerName.match(/\.(png|jpg|jpeg|gif|webp|svg)$/) || file?.previewType === 'image';
+  const isPdf = lowerName.endsWith('.pdf') || file?.mimeType === 'application/pdf' || file?.previewType === 'pdf';
+  const isDocx = lowerName.endsWith('.docx') || file?.previewType === 'doc' || (file?.mimeType && file.mimeType.includes('word'));
+  const isSheet = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls') || file?.previewType === 'spreadsheet' || (file?.mimeType && file.mimeType.includes('spreadsheet'));
+  const isImage = lowerName.match(/\.(png|jpg|jpeg|gif|webp|svg)$/) || file?.previewType === 'image' || (file?.mimeType && file.mimeType.includes('image'));
 
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden font-sans select-none">
-      {/* HEADER BAR - Clean, authoritative, strictly conforming to user constraints */}
-      <header className="h-16 shrink-0 bg-slate-950 border-b border-slate-800 px-4 sm:px-6 flex items-center justify-between gap-4 z-20">
+      {/* HEADER BAR - Single download button, close button, NO printer, NO copy, NO duplicate buttons, NO Google Drive */}
+      <header className="h-16 shrink-0 bg-slate-950 border-b border-slate-800 px-4 sm:px-6 flex items-center justify-between gap-4 z-20 shadow-md">
         {/* Left: Document Info */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="p-2 rounded-xl bg-slate-800/80 border border-slate-700/60 shrink-0">
+          <div className="p-2.5 rounded-xl bg-slate-800/90 border border-slate-700/70 shrink-0 shadow-inner">
             {isPdf && <FileText className="w-5 h-5 text-rose-400" />}
             {isDocx && <FileText className="w-5 h-5 text-blue-400" />}
             {isSheet && <FileSpreadsheet className="w-5 h-5 text-emerald-400" />}
@@ -196,16 +276,16 @@ export const DedicatedRawFileViewer: React.FC = () => {
           </div>
 
           <div className="min-w-0">
-            <h1 className="text-sm sm:text-base font-bold text-white truncate max-w-[280px] sm:max-w-md lg:max-w-xl">
-              {file?.name || 'กำลังโหลดไฟล์ต้นฉบับ...'}
+            <h1 className="text-sm sm:text-base font-bold text-white truncate max-w-[260px] sm:max-w-md lg:max-w-xl">
+              {file?.name || 'กำลังเปิดไฟล์ต้นฉบับ...'}
             </h1>
-            <div className="flex items-center gap-2 text-xs text-slate-400 truncate">
-              {file?.size && (
+            <div className="flex items-center gap-2 text-xs text-slate-400 truncate mt-0.5">
+              {file?.size ? (
                 <span>{(file.size / (1024 * 1024)).toFixed(2)} MB</span>
-              )}
-              <span className="inline-flex items-center gap-1 text-emerald-400 font-medium">
-                <CheckCircle2 className="w-3 h-3" />
-                ไฟล์ต้นฉบับที่อัปโหลด
+              ) : null}
+              <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                ไฟล์ต้นฉบับแท้
               </span>
               {submitterName && (
                 <span className="hidden md:inline text-slate-400 border-l border-slate-700 pl-2">
@@ -221,14 +301,15 @@ export const DedicatedRawFileViewer: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Action: Strictly ONLY ONE Download Button & Close Window (No printer, No copy, No duplicate buttons) */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* Right Action: ONLY ONE Download Button & Close Window (STRICT: NO printer, NO copy, NO duplicate buttons, NO Google Drive) */}
+        <div className="flex items-center gap-2.5 shrink-0">
           {file && (
             <button
               type="button"
+              id="btn-single-download"
               onClick={() => triggerDirectDownload(file)}
-              title="ดาวน์โหลดไฟล์ต้นฉบับตรง"
-              className="inline-flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-lg shadow-emerald-950/40 transition-all cursor-pointer"
+              title="ดาวน์โหลดไฟล์ต้นฉบับ (1 คลิก)"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-lg shadow-emerald-950/50 transition-all cursor-pointer"
             >
               <Download className="w-4 h-4" />
               <span>ดาวน์โหลดไฟล์ต้นฉบับ</span>
@@ -237,9 +318,10 @@ export const DedicatedRawFileViewer: React.FC = () => {
 
           <button
             type="button"
+            id="btn-close-window"
             onClick={() => window.close()}
             title="ปิดหน้าต่างนี้"
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white text-xs sm:text-sm font-medium rounded-xl border border-slate-700 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white text-xs sm:text-sm font-medium rounded-xl border border-slate-700 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
             <span className="hidden sm:inline">ปิดหน้าต่าง</span>
@@ -250,13 +332,13 @@ export const DedicatedRawFileViewer: React.FC = () => {
       {/* VIEWER CANVAS - Authentic Raw Original File Display */}
       <main className="flex-1 relative overflow-hidden bg-slate-950 flex flex-col">
         {loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 z-10 gap-3">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 z-30 gap-3">
             <div className="w-10 h-10 border-3 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
             <p className="text-sm font-medium text-slate-300">กำลังเปิดอ่านไฟล์ต้นฉบับแท้...</p>
           </div>
         )}
 
-        {error && (
+        {error && !loading && (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
             <div className="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-400 flex items-center justify-center mb-3">
               <AlertCircle className="w-6 h-6" />
@@ -276,28 +358,36 @@ export const DedicatedRawFileViewer: React.FC = () => {
           </div>
         )}
 
-        {!loading && !error && file && (
+        {!error && file && (
           <>
-            {/* 1. PDF VIEWER: Authentic PDF native engine via iframe Blob URL */}
+            {/* 1. PDF VIEWER: Authentic PDF native engine via Blob URL */}
             {isPdf && blobUrl && (
               <div className="w-full h-full bg-slate-900">
-                <iframe
-                  src={`${blobUrl}#toolbar=1`}
-                  className="w-full h-full border-0 bg-slate-100"
-                  title={file.name}
-                />
+                <object
+                  data={`${blobUrl}#toolbar=1`}
+                  type="application/pdf"
+                  className="w-full h-full border-0"
+                >
+                  <iframe
+                    src={`${blobUrl}#toolbar=1`}
+                    className="w-full h-full border-0 bg-slate-100"
+                    title={file.name}
+                  />
+                </object>
               </div>
             )}
 
-            {/* 2. DOCX VIEWER: Authentic Word rendering via docx-preview */}
-            {isDocx && (
-              <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-900 flex justify-center">
-                <div 
-                  ref={docxContainerRef}
-                  className="docx-render-wrapper max-w-4xl w-full bg-white text-slate-900 shadow-2xl rounded-sm min-h-[800px] p-6 sm:p-10 select-text font-serif leading-relaxed"
-                />
-              </div>
-            )}
+            {/* 2. DOCX VIEWER: Authentic Word rendering via docx-preview (Always mounted in DOM) */}
+            <div 
+              className={`flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-900 flex justify-center ${
+                isDocx ? 'block' : 'hidden'
+              }`}
+            >
+              <div 
+                ref={docxContainerRef}
+                className="docx-render-wrapper max-w-4xl w-full bg-white text-slate-900 shadow-2xl rounded-sm min-h-[850px] p-6 sm:p-12 select-text font-serif leading-relaxed"
+              />
+            </div>
 
             {/* 3. EXCEL / SPREADSHEET VIEWER: Authentic workbook renderer */}
             {isSheet && (

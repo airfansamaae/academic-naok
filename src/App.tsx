@@ -27,9 +27,6 @@ import {
   SettingsView 
 } from './components/SettingsView';
 import { 
-  FilePreviewModal 
-} from './components/FilePreviewModal';
-import { 
   DedicatedRawFileViewer 
 } from './components/DedicatedRawFileViewer';
 import { 
@@ -88,17 +85,6 @@ export default function App() {
   const [isDevCodeModalOpen, setIsDevCodeModalOpen] = useState(false);
   const [devCodeTab, setDevCodeTab] = useState<'gas' | 'd1'>('gas');
   const [copiedCode, setCopiedCode] = useState(false);
-
-  // File Preview Modal State
-  const [previewModalData, setPreviewModalData] = useState<{
-    isOpen: boolean;
-    file: UploadedFile | null;
-    assignmentTitle?: string;
-    uploaderName?: string;
-  }>({
-    isOpen: false,
-    file: null,
-  });
 
   // Load and refresh state helper (strictly prevents auto-login on data refresh)
   const refreshAllData = () => {
@@ -394,15 +380,6 @@ export default function App() {
       </footer>
 
       {/* 5. MODALS */}
-
-      {/* File Preview Modal */}
-      <FilePreviewModal
-        isOpen={previewModalData.isOpen}
-        file={previewModalData.file}
-        assignmentTitle={previewModalData.assignmentTitle}
-        submitterName={previewModalData.uploaderName}
-        onClose={() => setPreviewModalData({ isOpen: false, file: null })}
-      />
 
       {/* Legend Modal (สีม่วง vs สีเขียว) */}
       <LegendModal
