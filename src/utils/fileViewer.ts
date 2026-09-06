@@ -448,8 +448,8 @@ export function buildStandardizedA4ViewerHtml(
           />
         </div>
         <div style="width: 100%; display: flex; justify-content: space-between; padding-top: 12px; margin-top: 12px; border-top: 1px solid #cbd5e1; font-size: 12pt; color: #64748b; font-family: 'TH Sarabun New', Sarabun, sans-serif;">
-          <span>ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.)</span>
-          <span style="font-weight: 600; color: #1e293b; background: #f1f5f9; padding: 2px 8px; border-radius: 4px;">หน้า 1 / 1</span>
+          <span>ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.) • Font: TH Sarabun</span>
+          <span style="color: #64748b;">โรงเรียนกระบี่วิทยานุสรณ์</span>
         </div>
       </div>
     `;
@@ -481,11 +481,12 @@ export function buildStandardizedA4ViewerHtml(
             const cells = cur.split('|').map(c => c.trim()).filter((c, idx, arr) => idx > 0 && idx < arr.length - (cur.endsWith('|') ? 1 : 0) ? true : c.length > 0);
             if (cells.length > 0) {
               tableHtml += '<tr>';
-              cells.forEach(cell => {
+              cells.forEach((cell, cIdx) => {
                 if (isFirstRow) {
-                  tableHtml += `<th>${cell}</th>`;
+                  tableHtml += `<th style="background:#f1f5f9; font-weight:bold; text-align:center; padding:8px 10px; border:1px solid #475569;">${cell}</th>`;
                 } else {
-                  tableHtml += `<td>${cell}</td>`;
+                  const isFirstCol = cIdx === 0;
+                  tableHtml += `<td style="padding:8px 10px; border:1px solid #64748b; ${isFirstCol ? 'font-weight:600;' : ''}">${cell}</td>`;
                 }
               });
               tableHtml += '</tr>';
@@ -502,7 +503,7 @@ export function buildStandardizedA4ViewerHtml(
       }
 
       // Check for titles and headings
-      const isTitle = line.startsWith('โครงสร้าง') || line.startsWith('รายงาน') || line.startsWith('คำสั่งโรงเรียน') || line.startsWith('แบบฟอร์ม');
+      const isTitle = line.startsWith('โครงสร้าง') || line.startsWith('รายงาน') || line.startsWith('คำสั่งโรงเรียน') || line.startsWith('แบบฟอร์ม') || line.startsWith('แบบประเมิน');
       const isHeading = /^\d+\./.test(line) || line.startsWith('เรื่อง:') || line.startsWith('บทคัดย่อ:');
 
       if (isTitle) {
@@ -526,7 +527,7 @@ export function buildStandardizedA4ViewerHtml(
         <div class="a4-standardized-container" data-a4-page="${p + 1}">
           <div style="display: flex; justify-content: space-between; padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid #cbd5e1; font-size: 13pt; color: #475569; user-select: none;">
             <span style="font-weight: 700; color: #1e293b;">${displayTitle}</span>
-            <span style="background: #f1f5f9; padding: 2px 8px; border-radius: 4px; border: 1px solid #e2e8f0;">หน้า ${p + 1}</span>
+            <span style="color: #64748b; font-size: 12pt;">เอกสารวิชาการฉบับจริง</span>
           </div>
 
           <div style="flex: 1; font-family: 'TH Sarabun New', Sarabun, sans-serif;">
@@ -535,7 +536,7 @@ export function buildStandardizedA4ViewerHtml(
 
           <div style="display: flex; justify-content: space-between; padding-top: 12px; margin-top: 16px; border-top: 1px solid #cbd5e1; font-size: 12pt; color: #64748b; user-select: none;">
             <span>ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.) • Font: TH Sarabun</span>
-            <span style="font-weight: 600; color: #1e293b; background: #f1f5f9; padding: 2px 8px; border-radius: 4px;">หน้า ${p + 1} จาก ${totalPages}</span>
+            <span style="color: #64748b;">โรงเรียนกระบี่วิทยานุสรณ์</span>
           </div>
         </div>
       `;
@@ -546,7 +547,7 @@ export function buildStandardizedA4ViewerHtml(
         pagesHtml.push(`
           <div class="a4-page-separator">
             <span class="a4-page-separator-badge">
-              ที่คั่นแบ่งหน้า • สิ้นสุดหน้า ${p + 1} (ขนาด A4 210 × 297 มม.) — เริ่มหน้า ${p + 2}
+              เส้นคั่นแบ่งหน้ามาตรฐาน A4 (210 × 297 มม.)
             </span>
           </div>
         `);
@@ -669,7 +670,7 @@ export function buildStandardizedA4ViewerHtml(
       const totNum = document.getElementById('total-page-num');
       const viewport = document.getElementById('a4-viewport');
 
-      if (pages.length > 1 && hud && curNum && totNum && viewport) {
+      if (pages.length >= 1 && hud && curNum && totNum && viewport) {
         totNum.textContent = '/ ' + pages.length;
         hud.style.display = 'flex';
 

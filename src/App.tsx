@@ -85,11 +85,6 @@ export default function App() {
   const [isDevCodeModalOpen, setIsDevCodeModalOpen] = useState(false);
   const [devCodeTab, setDevCodeTab] = useState<'gas' | 'd1'>('gas');
   const [copiedCode, setCopiedCode] = useState(false);
-  const [activeRawFileViewer, setActiveRawFileViewer] = useState<{
-    file: UploadedFile;
-    title?: string;
-    uploader?: string;
-  } | null>(null);
 
   // Load and refresh state helper (strictly prevents auto-login on data refresh)
   const refreshAllData = () => {
@@ -204,17 +199,13 @@ export default function App() {
     };
   }, []);
 
-  // Open Preview -> Opens authentic raw original file in dedicated A4 viewer (both full screen modal and new tab)
+  // Open Preview -> Opens authentic raw original file in dedicated A4 viewer in a new tab ONLY.
+  // The current web page strictly stays unchanged at the exact same scroll/view state.
   const handleOpenFilePreview = (
     file: UploadedFile,
     assignmentTitle?: string,
     uploaderName?: string
   ) => {
-    setActiveRawFileViewer({
-      file,
-      title: assignmentTitle,
-      uploader: uploaderName,
-    });
     openAuthenticFileInNewTab(file, assignmentTitle, uploaderName);
   };
 
@@ -488,19 +479,6 @@ export default function App() {
               </span>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* DEDICATED AUTHENTIC RAW FILE VIEWER (FULLSCREEN A4 MODAL WITH TH SARABUN & SCROLL INDICATOR) */}
-      {activeRawFileViewer && (
-        <div className="fixed inset-0 z-[99999] bg-slate-950 flex flex-col">
-          <DedicatedRawFileViewer
-            initialFile={activeRawFileViewer.file}
-            initialTitle={activeRawFileViewer.title}
-            initialSubmitter={activeRawFileViewer.uploader}
-            onClose={() => setActiveRawFileViewer(null)}
-            isModalMode={true}
-          />
         </div>
       )}
     </div>
