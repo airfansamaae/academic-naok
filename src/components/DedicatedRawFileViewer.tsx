@@ -44,7 +44,8 @@ function createA4PagesFromText(text: string, defaultTitle?: string): DocxParsedP
 
     // Check if table row (e.g. '| col 1 | col 2 |' or separated by tabs)
     if (line.startsWith('|') || (line.includes('|') && line.split('|').length >= 3) || line.includes('\t')) {
-      const tableRows: string[][] = [];
+      const stringRows: string[][] = [];
+      const structuredRows: any[] = [];
       while (i < rawLines.length) {
         const curLine = rawLines[i].trim();
         if (!curLine) break;
@@ -58,17 +59,34 @@ function createA4PagesFromText(text: string, defaultTitle?: string): DocxParsedP
             ? curLine.split('|').map(c => c.trim()).filter((c, idx, arr) => idx > 0 && idx < arr.length - (curLine.endsWith('|') ? 1 : 0) ? true : c.length > 0)
             : curLine.split('\t').map(c => c.trim());
           if (cells.length > 0) {
-            tableRows.push(cells);
+            const isHeader = structuredRows.length === 0;
+            stringRows.push(cells);
+            structuredRows.push({
+              isHeader,
+              cells: cells.map((c, cIdx) => ({
+                text: c,
+                align: isHeader ? 'center' : cIdx === 0 ? 'left' : 'left',
+                bgColor: isHeader ? '#F1F5F9' : undefined,
+                bold: isHeader || (cIdx === 0 && !isHeader),
+                fontSizePt: isHeader ? 14 : 13,
+                runs: [{ text: c, bold: isHeader || (cIdx === 0 && !isHeader) }]
+              }))
+            });
           }
           i++;
         } else {
           break;
         }
       }
-      if (tableRows.length > 0) {
+      if (stringRows.length > 0) {
         elements.push({
           type: 'table',
-          rows: tableRows
+          rows: stringRows,
+          tableRows: structuredRows,
+          borderColors: {
+            outer: '#475569',
+            inner: '#94A3B8'
+          }
         });
       }
       continue;
@@ -159,7 +177,6 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
   // A4 pagination state
   const [parsedPages, setParsedPages] = useState<DocxParsedPage[]>([]);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
-  const [docxRenderMode, setDocxRenderMode] = useState<'a4-pages' | 'docx-preview'>('a4-pages');
 
   // Dynamic Scroll Page Tracking (เมื่อเลื่อนลงมา ก็จะมีหน้าให้เห็นว่า อยู่หน้าที่เท่าไร)
   const [currentPageInView, setCurrentPageInView] = useState<number>(1);
@@ -170,8 +187,6 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [activeSheet, setActiveSheet] = useState<string>('');
   const [sheetData, setSheetData] = useState<{ [sheet: string]: any[][] }>({});
-
-  const docxContainerRef = useRef<HTMLDivElement>(null);
 
   // Register page ref for scroll tracking
   const registerPageRef = (pageNum: number, el: HTMLDivElement | null) => {
@@ -425,22 +440,6 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                 setParsedPages(createA4PagesFromText(file.previewContent, file.name));
               }
             }
-
-            // Also render with docx-preview as secondary DOM container
-            if (docxContainerRef.current) {
-              docxContainerRef.current.innerHTML = '';
-              try {
-                await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
-                  className: 'docx-page-canvas',
-                  inWrapper: true,
-                  ignoreWidth: false,
-                  ignoreHeight: false,
-                  breakPages: true
-                });
-              } catch (renderErr) {
-                console.warn('[DedicatedRawFileViewer] docx-preview renderAsync failed:', renderErr);
-              }
-            }
           } else if (isSheet) {
             // Render Excel Spreadsheet (.xlsx / .xls)
             try {
@@ -591,19 +590,11 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
               <h1 className="text-sm sm:text-base font-bold text-white truncate max-w-[200px] sm:max-w-xs md:max-w-md lg:max-w-lg">
                 {file?.name || 'กำลังเปิดไฟล์ต้นฉบับ...'}
               </h1>
-              {parsedPages.length > 0 && (
-                <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded-md border border-purple-800/50 shrink-0">
-                  ขนาด A4 ({parsedPages.length} หน้า)
-                </span>
-              )}
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-400 truncate mt-0.5">
               <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-500/30">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 ไฟล์ต้นฉบับแท้
-              </span>
-              <span className="hidden sm:inline text-amber-300 font-medium">
-                Font: TH Sarabun (ขนาด A4 210 × 297 มม.)
               </span>
               {submitterName && (
                 <span className="hidden md:inline text-slate-400 border-l border-slate-700 pl-2">
@@ -728,191 +719,180 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
         {!error && file && (
           <>
             {/* 1. AUTHENTIC A4 PAGINATED VIEWER FOR WORD DOCX AND PARSED DOCUMENTS */}
-            {isDocx && (
+            {isDocx && parsedPages.length > 0 && (
               <div className="w-full flex flex-col items-center py-8 px-4 sm:px-8">
-                {/* Mode Selector Pill */}
-                <div className="mb-6 flex items-center gap-2 bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs select-none shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => setDocxRenderMode('a4-pages')}
-                    className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-                      docxRenderMode === 'a4-pages'
-                        ? 'bg-purple-600 text-white shadow-xs'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>การจัดหน้า A4 (TH Sarabun • ตารางเหมือนต้นฉบับ)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDocxRenderMode('docx-preview')}
-                    className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-                      docxRenderMode === 'docx-preview'
-                        ? 'bg-purple-600 text-white shadow-xs'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                    <span>มุมมองเค้าโครงเดิม (docx-preview)</span>
-                  </button>
-                </div>
-
-                {/* Primary Mode: Authentic A4 Sheets with clear page break dividers and exact spacing */}
-                {docxRenderMode === 'a4-pages' && parsedPages.length > 0 && (
-                  <div 
-                    className="flex flex-col items-center w-full transition-transform duration-150 origin-top"
-                    style={{ transform: `scale(${zoomLevel / 100})` }}
-                  >
-                    {parsedPages.map((page, pageIdx) => {
-                      const pageNum = page.pageNumber || pageIdx + 1;
-                      return (
-                        <React.Fragment key={pageNum}>
-                          {/* Standardized A4 Sheet: 210 x 297 mm, Margins Top 25mm, Bottom 20mm, Left 25mm, Right 20mm */}
-                          <div 
-                            ref={(el) => registerPageRef(pageNum, el)}
-                            data-page-index={pageNum}
-                            className="a4-page-sheet flex flex-col justify-between select-text relative"
-                          >
-                            {/* Official Document Top Header */}
-                            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-300 text-[13pt] text-slate-600 select-none font-sarabun">
-                              <span className="font-bold text-slate-800 truncate max-w-[480px]">
-                                {assignmentTitle || file.name}
-                              </span>
-                              <span className="text-slate-500 text-[12pt]">
-                                เอกสารวิชาการฉบับจริง
-                              </span>
-                            </div>
-
-                            {/* Page Content Body (TH Sarabun font, clear font size, table rendering) */}
-                            <div className="flex-1 space-y-3.5 text-slate-900 leading-relaxed font-sarabun">
-                              {page.elements.map((el, elIdx) => {
-                                if (el.type === 'paragraph') {
-                                  const isCenter = el.align === 'center';
-                                  const isRight = el.align === 'right';
-                                  const alignClass = isCenter ? 'text-center' : isRight ? 'text-right' : 'text-left';
-
-                                  return (
-                                    <p 
-                                      key={elIdx} 
-                                      className={`${alignClass} ${!isCenter && !isRight ? 'indent-10' : ''} leading-relaxed my-1.5`}
-                                      style={{ fontSize: '16pt' }}
-                                    >
-                                      {el.runs.map((run, rIdx) => {
-                                        const style: React.CSSProperties = {};
-                                        if (run.bold) style.fontWeight = 'bold';
-                                        if (run.italic) style.fontStyle = 'italic';
-                                        if (run.underline) style.textDecoration = 'underline';
-                                        if (run.color) style.color = run.color;
-                                        if (run.fontSizePt) {
-                                          style.fontSize = `${run.fontSizePt}pt`;
-                                        }
-
-                                        return (
-                                          <span key={rIdx} style={style}>
-                                            {run.text}
-                                          </span>
-                                        );
-                                      })}
-                                    </p>
-                                  );
-                                }
-
-                                if (el.type === 'table') {
-                                  return (
-                                    <div key={elIdx} className="my-4 overflow-x-auto w-full">
-                                      <table className="w-full border-collapse border-2 border-slate-700 font-sarabun text-[14pt] leading-normal my-2">
-                                        <tbody>
-                                          {el.rows.map((row, rIdx) => {
-                                            const isHeaderRow = rIdx === 0;
-                                            return (
-                                              <tr 
-                                                key={rIdx} 
-                                                className={isHeaderRow ? 'bg-slate-200/90 font-bold text-center border-b-2 border-slate-700' : rIdx % 2 === 1 ? 'bg-white' : 'bg-slate-50/70'}
-                                              >
-                                                {row.map((cell, cIdx) => {
-                                                  const cellText = typeof cell === 'string' ? cell : (cell as any)?.text || '';
-                                                  const isFirstCol = cIdx === 0;
-                                                  return (
-                                                    <td 
-                                                      key={cIdx} 
-                                                      className={`border border-slate-500 p-2.5 text-slate-900 ${
-                                                        isHeaderRow 
-                                                          ? 'text-center font-bold text-[14.5pt]' 
-                                                          : isFirstCol && row.length > 2
-                                                          ? 'text-left font-semibold align-top w-[25%]' 
-                                                          : 'text-left align-top'
-                                                      }`}
-                                                      style={{ fontSize: isHeaderRow ? '15pt' : '13.5pt' }}
-                                                    >
-                                                      <span className="whitespace-pre-line">{cellText}</span>
-                                                    </td>
-                                                  );
-                                                })}
-                                              </tr>
-                                            );
-                                          })}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  );
-                                }
-
-                                if (el.type === 'image' && el.dataUrl) {
-                                  return (
-                                    <div key={elIdx} className="my-3 flex justify-center">
-                                      <img 
-                                        src={el.dataUrl} 
-                                        alt="เอกสารแนบ" 
-                                        className="max-w-full max-h-[350px] object-contain border border-slate-300 rounded shadow-xs" 
-                                        referrerPolicy="no-referrer"
-                                      />
-                                    </div>
-                                  );
-                                }
-
-                                return null;
-                              })}
-                            </div>
-
-                            {/* Authentic A4 Page Footer without individual page numbers */}
-                            <div className="pt-4 mt-6 border-t border-slate-300 flex items-center justify-between text-[12pt] text-slate-500 select-none font-sarabun">
-                              <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                                ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.) • Font: TH Sarabun
-                              </span>
-                              <span className="text-slate-500 text-[12pt]">
-                                โรงเรียนกระบี่วิทยานุสรณ์
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* DISTINCT A4 PAGE SEPARATOR BAR BETWEEN PAGES */}
-                          {pageIdx < parsedPages.length - 1 && (
-                            <div className="w-full max-w-[210mm] my-8 flex items-center justify-center gap-3 select-none">
-                              <div className="h-px bg-slate-700/60 flex-1" />
-                              <div className="flex items-center gap-2 px-4 py-1.5 bg-slate-800 border border-slate-700 rounded-full text-xs font-semibold text-slate-300 shadow-md">
-                                <FileText className="w-3.5 h-3.5 text-purple-400" />
-                                <span>เส้นคั่นแบ่งหน้ามาตรฐาน A4 (210 × 297 มม.)</span>
-                              </div>
-                              <div className="h-px bg-slate-700/60 flex-1" />
-                            </div>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Secondary Mode: Standard docx-preview wrapper */}
+                {/* Single Authentic View: Clear A4 Sheets with dividers and exact table fidelity */}
                 <div 
-                  className={`w-full flex justify-center ${docxRenderMode === 'docx-preview' ? 'block' : 'hidden'}`}
-                  style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
+                  className="flex flex-col items-center w-full transition-transform duration-150 origin-top"
+                  style={{ transform: `scale(${zoomLevel / 100})` }}
                 >
-                  <div 
-                    ref={docxContainerRef}
-                    className="docx-render-wrapper w-full flex flex-col items-center select-text"
-                  />
+                  {parsedPages.map((page, pageIdx) => {
+                    const pageNum = page.pageNumber || pageIdx + 1;
+                    return (
+                      <React.Fragment key={pageNum}>
+                        {/* Standardized A4 Sheet: 210 x 297 mm, Margins Top 25mm, Bottom 20mm, Left 25mm, Right 20mm */}
+                        <div 
+                          ref={(el) => registerPageRef(pageNum, el)}
+                          data-page-index={pageNum}
+                          className="a4-page-sheet flex flex-col justify-start select-text relative"
+                        >
+                          {/* Page Content Body (TH Sarabun font, clear font size, raw table rendering) */}
+                          <div className="flex-1 space-y-3.5 text-slate-900 leading-relaxed font-sarabun">
+                            {page.elements.map((el, elIdx) => {
+                              if (el.type === 'paragraph') {
+                                const isCenter = el.align === 'center';
+                                const isRight = el.align === 'right';
+                                const alignClass = isCenter ? 'text-center' : isRight ? 'text-right' : 'text-left';
+
+                                return (
+                                  <p 
+                                    key={elIdx} 
+                                    className={`${alignClass} ${!isCenter && !isRight ? 'indent-10' : ''} leading-relaxed my-1.5`}
+                                    style={{ fontSize: '16pt' }}
+                                  >
+                                    {el.runs.map((run, rIdx) => {
+                                      const style: React.CSSProperties = {};
+                                      if (run.bold) style.fontWeight = 'bold';
+                                      if (run.italic) style.fontStyle = 'italic';
+                                      if (run.underline) style.textDecoration = 'underline';
+                                      if (run.color) style.color = run.color;
+                                      if (run.fontSizePt) {
+                                        style.fontSize = `${run.fontSizePt}pt`;
+                                      }
+
+                                      return (
+                                        <span key={rIdx} style={style}>
+                                          {run.text}
+                                        </span>
+                                      );
+                                    })}
+                                  </p>
+                                );
+                              }
+
+                              if (el.type === 'table') {
+                                const tableRows = el.tableRows || (el.rows ? el.rows.map((row, rIdx) => ({
+                                  isHeader: rIdx === 0,
+                                  cells: row.map((c: any, cIdx: number) => {
+                                    const text = typeof c === 'string' ? c : c?.text || '';
+                                    return {
+                                      text,
+                                      align: rIdx === 0 ? 'center' : 'left',
+                                      bgColor: rIdx === 0 ? '#F1F5F9' : undefined,
+                                      bold: rIdx === 0 || (cIdx === 0 && rIdx > 0),
+                                      fontSizePt: rIdx === 0 ? 14 : 13,
+                                      runs: [{ text, bold: rIdx === 0 || (cIdx === 0 && rIdx > 0) }]
+                                    };
+                                  })
+                                })) : []);
+
+                                const outerBorder = el.borderColors?.outer || '#475569';
+                                const innerBorder = el.borderColors?.inner || '#94A3B8';
+
+                                return (
+                                  <div key={elIdx} className="my-4 overflow-x-auto w-full">
+                                    <table 
+                                      className="w-full border-collapse font-sarabun text-[14pt] leading-normal my-2 table-auto"
+                                      style={{
+                                        border: `1.5px solid ${outerBorder}`,
+                                        borderColor: outerBorder
+                                      }}
+                                    >
+                                      <tbody>
+                                        {tableRows.map((row, rIdx) => {
+                                          const isHeader = row.isHeader || rIdx === 0;
+                                          return (
+                                            <tr 
+                                              key={rIdx} 
+                                              className={isHeader ? 'font-bold' : ''}
+                                            >
+                                              {row.cells.map((cell, cIdx) => {
+                                                const cellBg = cell.bgColor || (isHeader ? '#F1F5F9' : undefined);
+                                                const cellAlign = cell.align || (isHeader ? 'center' : 'left');
+
+                                                return (
+                                                  <td 
+                                                    key={cIdx} 
+                                                    colSpan={cell.colSpan}
+                                                    rowSpan={cell.rowSpan}
+                                                    className={`p-2.5 text-slate-900 align-top ${
+                                                      cellAlign === 'center'
+                                                        ? 'text-center'
+                                                        : cellAlign === 'right'
+                                                        ? 'text-right'
+                                                        : cellAlign === 'justify'
+                                                        ? 'text-justify'
+                                                        : 'text-left'
+                                                    }`}
+                                                    style={{
+                                                      backgroundColor: cellBg || undefined,
+                                                      border: `1px solid ${innerBorder}`,
+                                                      fontSize: cell.fontSizePt ? `${cell.fontSizePt}pt` : isHeader ? '14pt' : '13pt',
+                                                      fontWeight: cell.bold || isHeader ? 700 : 400
+                                                    }}
+                                                  >
+                                                    {cell.runs && cell.runs.length > 0 ? (
+                                                      cell.runs.map((run, runIdx) => (
+                                                        <span
+                                                          key={runIdx}
+                                                          style={{
+                                                            fontWeight: run.bold ? 700 : undefined,
+                                                            fontStyle: run.italic ? 'italic' : undefined,
+                                                            textDecoration: run.underline ? 'underline' : undefined,
+                                                            color: run.color || undefined,
+                                                            fontSize: run.fontSizePt ? `${run.fontSizePt}pt` : undefined
+                                                          }}
+                                                        >
+                                                          {run.text}
+                                                        </span>
+                                                      ))
+                                                    ) : (
+                                                      <span className="whitespace-pre-line">{cell.text}</span>
+                                                    )}
+                                                  </td>
+                                                );
+                                              })}
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                );
+                              }
+
+                              if (el.type === 'image' && el.dataUrl) {
+                                return (
+                                  <div key={elIdx} className="my-3 flex justify-center">
+                                    <img 
+                                      src={el.dataUrl} 
+                                      alt="เอกสารแนบ" 
+                                      className="max-w-full max-h-[350px] object-contain border border-slate-300 rounded shadow-xs" 
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  </div>
+                                );
+                              }
+
+                              return null;
+                            })}
+                          </div>
+                        </div>
+
+                        {/* DISTINCT A4 PAGE SEPARATOR BAR BETWEEN PAGES */}
+                        {pageIdx < parsedPages.length - 1 && (
+                          <div className="w-full max-w-[210mm] my-8 flex items-center justify-center gap-3 select-none">
+                            <div className="h-px bg-slate-700/60 flex-1" />
+                            <div className="flex items-center gap-2 px-4 py-1.5 bg-slate-800 border border-slate-700 rounded-full text-xs font-semibold text-slate-300 shadow-md">
+                              <FileText className="w-3.5 h-3.5 text-purple-400" />
+                              <span>เส้นคั่นแบ่งหน้ามาตรฐาน A4 (210 × 297 มม.)</span>
+                            </div>
+                            <div className="h-px bg-slate-700/60 flex-1" />
+                          </div>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -977,54 +957,27 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                   style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
                 >
                   <div>
-                    {/* Header */}
-                    <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-300 text-[13pt] text-slate-600 font-sarabun">
-                      <span className="font-bold text-slate-800 truncate max-w-[480px]">
-                        {assignmentTitle || file.name} {activeSheet ? `• ชีต: ${activeSheet}` : ''}
-                      </span>
-                      <span className="text-slate-500 text-[12pt]">
-                        แบบบันทึกผลการเรียนรู้ฉบับจริง (ปพ.5)
-                      </span>
-                    </div>
-
-                    {/* Spreadsheet Table Grid - Authentic Academic Format */}
-                    <div className="overflow-x-auto w-full my-3">
+                    {/* Spreadsheet Table Grid - Raw Data Display */}
+                    <div className="overflow-x-auto w-full my-2">
                       {activeSheet && sheetData[activeSheet] && sheetData[activeSheet].length > 0 ? (() => {
                         const rawRows = sheetData[activeSheet];
                         const headerRow = rawRows[0] || [];
                         const bodyRows = rawRows.slice(1);
 
                         return (
-                          <div className="space-y-4">
-                            {/* Academic Title Header */}
-                            <div className="text-center py-2 border-b border-slate-300 font-sarabun">
-                              <h2 className="text-[20pt] font-bold text-slate-900 leading-tight">
-                                แบบบันทึกผลการเรียนรู้และคะแนนเก็บ (ปพ.5)
-                              </h2>
-                              <p className="text-[15pt] text-slate-700 mt-1">
-                                {assignmentTitle || (file?.name ? file.name.replace(/\.[^/.]+$/, '') : 'แบบบันทึกผลการเรียน')}
-                              </p>
-                              <div className="flex justify-center items-center gap-3 text-[13pt] text-slate-600 mt-1">
-                                <span>กลุ่มสาระการเรียนรู้โรงเรียนกระบี่วิทยานุสรณ์</span>
-                                <span>•</span>
-                                <span>ภาคเรียนที่ 1 ปีการศึกษา 2569</span>
-                                {submitterName && (
-                                  <>
-                                    <span>•</span>
-                                    <span>ผู้บันทึก: {submitterName}</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-
+                          <div className="w-full">
                             {/* Exact Table Matching Raw File */}
-                            <table className="w-full border-collapse border-2 border-slate-700 font-sarabun text-[14pt]">
+                            <table 
+                              className="w-full border-collapse font-sarabun text-[14pt] table-auto"
+                              style={{ border: '1.5px solid #475569' }}
+                            >
                               <thead>
-                                <tr className="bg-slate-200/90 text-slate-900 border-b-2 border-slate-700">
+                                <tr className="bg-[#F1F5F9] text-slate-900">
                                   {headerRow.map((colName: any, colIdx: number) => (
                                     <th 
                                       key={colIdx} 
-                                      className="px-3 py-2.5 border border-slate-500 text-slate-900 font-bold text-center text-[14pt] leading-snug"
+                                      className="px-3 py-2.5 font-bold text-center text-[14pt] leading-snug"
+                                      style={{ border: '1px solid #94A3B8' }}
                                     >
                                       {String(colName ?? '')}
                                     </th>
@@ -1033,10 +986,7 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                               </thead>
                               <tbody>
                                 {bodyRows.map((row: any[], rowIdx: number) => (
-                                  <tr 
-                                    key={rowIdx} 
-                                    className={rowIdx % 2 === 1 ? 'bg-white' : 'bg-slate-50/80'}
-                                  >
+                                  <tr key={rowIdx}>
                                     {headerRow.map((_: any, colIdx: number) => {
                                       const cell = row[colIdx];
                                       const val = cell !== null && cell !== undefined ? String(cell) : '';
@@ -1044,30 +994,18 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                                       const isId = colIdx === 1;
                                       const isName = colIdx === 2;
                                       const isNumeric = !isNaN(Number(val)) && val.trim() !== '';
-                                      const isResult = colIdx === headerRow.length - 1;
 
                                       let cellAlign = 'text-center';
-                                      if (isName) cellAlign = 'text-left pl-3.5 pr-2 font-medium';
-                                      else if (isNumeric && !isSeq && !isId) cellAlign = 'text-center font-semibold text-slate-900';
+                                      if (isName) cellAlign = 'text-left pl-3 pr-2';
+                                      else if (isNumeric && !isSeq && !isId) cellAlign = 'text-center';
 
                                       return (
                                         <td 
                                           key={colIdx} 
-                                          className={`px-3 py-2 border border-slate-400 text-slate-900 text-[14pt] align-middle ${cellAlign}`}
+                                          className={`px-3 py-2 text-slate-900 text-[13.5pt] align-middle ${cellAlign}`}
+                                          style={{ border: '1px solid #94A3B8' }}
                                         >
-                                          {isResult && val ? (
-                                            <span className={`inline-block px-2.5 py-0.5 rounded text-[13pt] font-semibold ${
-                                              val.includes('ดีเยี่ยม')
-                                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                                : val.includes('ดี')
-                                                ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                                                : 'bg-amber-100 text-amber-800 border border-amber-300'
-                                            }`}>
-                                              {val}
-                                            </span>
-                                          ) : (
-                                            val
-                                          )}
+                                          {val}
                                         </td>
                                       );
                                     })}
@@ -1075,18 +1013,6 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                                 ))}
                               </tbody>
                             </table>
-
-                            {/* Authentic Academic Table Summary */}
-                            <div className="pt-3 border-t border-slate-300 flex flex-wrap items-center justify-between text-[13pt] text-slate-700 font-sarabun">
-                              <div className="flex items-center gap-4">
-                                <span>จำนวนนักเรียนทั้งหมด: <strong className="text-slate-900">{bodyRows.length}</strong> คน</span>
-                                <span>•</span>
-                                <span>ผลการประเมิน: ผ่านเกณฑ์ <strong className="text-emerald-700">100%</strong></span>
-                              </div>
-                              <div className="text-slate-500 text-[12pt]">
-                                ข้อมูลจากไฟล์ต้นฉบับ ปพ.5 ({activeSheet})
-                              </div>
-                            </div>
                           </div>
                         );
                       })() : (
@@ -1095,17 +1021,6 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                         </div>
                       )}
                     </div>
-                  </div>
-
-                  {/* Footer without page number */}
-                  <div className="pt-4 mt-6 border-t border-slate-300 flex items-center justify-between text-[12pt] text-slate-500 font-sarabun">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                      ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.) • Font: TH Sarabun
-                    </span>
-                    <span className="text-slate-500 text-[12pt]">
-                      โรงเรียนกระบี่วิทยานุสรณ์
-                    </span>
                   </div>
                 </div>
               </div>
@@ -1120,32 +1035,13 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                   className="w-full max-w-[210mm] transition-transform duration-150 origin-top flex flex-col items-center"
                   style={{ transform: `scale(${zoomLevel / 100})` }}
                 >
-                  <div className="a4-page-sheet flex flex-col justify-between select-none">
-                    <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-300 text-[13pt] text-slate-600 font-sarabun">
-                      <span className="font-bold text-slate-800 truncate max-w-[380px]">
-                        {assignmentTitle || file.name}
-                      </span>
-                      <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        ภาพแนบฉบับจริง • มาตรฐาน A4
-                      </span>
-                    </div>
-
-                    <div className="flex-1 flex items-center justify-center p-4">
+                  <div className="a4-page-sheet flex flex-col justify-center items-center select-none">
+                    <div className="flex-1 flex items-center justify-center p-2 w-full">
                       <img
                         src={file.fileDataUrl || blobUrl || ''}
                         alt={file.name}
-                        className="max-w-full max-h-[200mm] object-contain rounded shadow-sm border border-slate-200"
+                        className="max-w-full max-h-[250mm] object-contain"
                       />
-                    </div>
-
-                    <div className="pt-4 mt-4 border-t border-slate-300 flex items-center justify-between text-[12pt] text-slate-500 font-sarabun">
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                        ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.)
-                      </span>
-                      <span className="text-slate-500 text-[12pt]">
-                        โรงเรียนกระบี่วิทยานุสรณ์
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -1167,17 +1063,8 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                           <div 
                             ref={(el) => registerPageRef(pageNum, el)}
                             data-page-index={pageNum}
-                            className="a4-page-sheet flex flex-col justify-between select-text"
+                            className="a4-page-sheet flex flex-col justify-start select-text"
                           >
-                            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-300 text-[13pt] text-slate-600 font-sarabun">
-                              <span className="font-bold text-slate-800 truncate max-w-[480px]">
-                                {assignmentTitle || file.name}
-                              </span>
-                              <span className="text-slate-500 text-[12pt]">
-                                เอกสารวิชาการฉบับจริง
-                              </span>
-                            </div>
-
                             <div className="flex-1 space-y-3.5 text-slate-900 leading-relaxed font-sarabun">
                               {page.elements.map((el, elIdx) => {
                                 if (el.type === 'paragraph') {
@@ -1202,19 +1089,47 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                                   );
                                 }
                                 if (el.type === 'table') {
+                                  const tableRows = el.tableRows || (el.rows ? el.rows.map((row, rIdx) => ({
+                                    isHeader: rIdx === 0,
+                                    cells: row.map((c: any) => ({
+                                      text: typeof c === 'string' ? c : c?.text || '',
+                                      align: rIdx === 0 ? 'center' : 'left',
+                                      bgColor: rIdx === 0 ? '#F1F5F9' : undefined,
+                                      bold: rIdx === 0
+                                    }))
+                                  })) : []);
+
                                   return (
                                     <div key={elIdx} className="my-4 overflow-x-auto w-full">
-                                      <table className="w-full border-collapse border border-slate-700 font-sarabun text-[14pt] leading-normal my-2">
+                                      <table 
+                                        className="w-full border-collapse font-sarabun text-[14pt] leading-normal my-2 table-auto"
+                                        style={{ border: '1.5px solid #475569' }}
+                                      >
                                         <tbody>
-                                          {el.rows.map((row, rIdx) => (
-                                            <tr key={rIdx} className={rIdx === 0 ? 'bg-slate-100 font-bold text-center' : rIdx % 2 === 1 ? 'bg-white' : 'bg-slate-50/60'}>
-                                              {row.map((cell, cIdx) => (
-                                                <td key={cIdx} className="border border-slate-400 p-2.5 align-middle text-slate-900">
-                                                  {typeof cell === 'string' ? cell : (cell as any)?.text || ''}
-                                                </td>
-                                              ))}
-                                            </tr>
-                                          ))}
+                                          {tableRows.map((row, rIdx) => {
+                                            const isHeader = row.isHeader || rIdx === 0;
+                                            return (
+                                              <tr key={rIdx} className={isHeader ? 'font-bold' : ''}>
+                                                {row.cells.map((cell, cIdx) => (
+                                                  <td 
+                                                    key={cIdx} 
+                                                    colSpan={cell.colSpan}
+                                                    rowSpan={cell.rowSpan}
+                                                    className={`p-2.5 text-slate-900 align-top ${
+                                                      cell.align === 'center' ? 'text-center' : 'text-left'
+                                                    }`}
+                                                    style={{ 
+                                                      backgroundColor: cell.bgColor || (isHeader ? '#F1F5F9' : undefined),
+                                                      border: '1px solid #94A3B8',
+                                                      fontWeight: cell.bold || isHeader ? 700 : 400
+                                                    }}
+                                                  >
+                                                    <span className="whitespace-pre-line">{cell.text}</span>
+                                                  </td>
+                                                ))}
+                                              </tr>
+                                            );
+                                          })}
                                         </tbody>
                                       </table>
                                     </div>
@@ -1222,16 +1137,6 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                                 }
                                 return null;
                               })}
-                            </div>
-
-                            <div className="pt-4 mt-6 border-t border-slate-300 flex items-center justify-between text-[12pt] text-slate-500 font-sarabun">
-                              <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                                ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.) • Font: TH Sarabun
-                              </span>
-                              <span className="text-slate-500 text-[12pt]">
-                                โรงเรียนกระบี่วิทยานุสรณ์
-                              </span>
                             </div>
                           </div>
 
@@ -1305,9 +1210,6 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
               {currentPageInView}
             </span>
             <span className="text-slate-400">/ {totalPages}</span>
-            <span className="hidden sm:inline-block text-[11px] text-slate-400 border-l border-slate-700 pl-2">
-              A4 (210 × 297 มม.) • TH Sarabun
-            </span>
           </div>
 
           {totalPages > 1 && (

@@ -17,9 +17,30 @@ export interface DocxParsedParagraph {
   isPageBreak?: boolean;
 }
 
+export interface DocxParsedTableCell {
+  text: string;
+  runs: DocxParsedRun[];
+  align?: 'left' | 'center' | 'right' | 'justify';
+  bgColor?: string;
+  bold?: boolean;
+  fontSizePt?: number;
+  colSpan?: number;
+  rowSpan?: number;
+}
+
+export interface DocxParsedTableRow {
+  cells: DocxParsedTableCell[];
+  isHeader?: boolean;
+}
+
 export interface DocxParsedTable {
   type: 'table';
-  rows: string[][];
+  rows: (string[] | DocxParsedTableCell[])[];
+  tableRows?: DocxParsedTableRow[];
+  borderColors?: {
+    outer?: string;
+    inner?: string;
+  };
 }
 
 export interface DocxParsedImage {
@@ -182,39 +203,148 @@ export async function parseDocxBinary(
         }
       } else if (tag === 'w:tbl') {
         const rows: string[][] = [];
+        const tableRows: DocxParsedTableRow[] = [];
+
+        // Parse table borders
+        let outerBorderColor = '#475569';
+        let innerBorderColor = '#94A3B8';
+        const borderTopMatch = content.match(/<w:top\s+[^>]*w:color="([^"]+)"/);
+        if (borderTopMatch && borderTopMatch[1] && borderTopMatch[1].toLowerCase() !== 'auto') {
+          outerBorderColor = `#${borderTopMatch[1]}`;
+        }
+        const insideHMatch = content.match(/<w:insideH\s+[^>]*w:color="([^"]+)"/);
+        if (insideHMatch && insideHMatch[1] && insideHMatch[1].toLowerCase() !== 'auto') {
+          innerBorderColor = `#${insideHMatch[1]}`;
+        }
+
         const trRegex = /<w:tr(?:\s+[^>]*)?>([\s\S]*?)<\/w:tr>/g;
         let trMatch: RegExpExecArray | null;
 
         while ((trMatch = trRegex.exec(content)) !== null) {
           const trContent = trMatch[1];
-          const cells: string[] = [];
+          const isHeaderRow = /<w:tblHeader\s*\/>/.test(trContent) || tableRows.length === 0;
+          const parsedCells: DocxParsedTableCell[] = [];
+          const stringCells: string[] = [];
+
           const tcRegex = /<w:tc(?:\s+[^>]*)?>([\s\S]*?)<\/w:tc>/g;
           let tcMatch: RegExpExecArray | null;
 
           while ((tcMatch = tcRegex.exec(trContent)) !== null) {
             const tcContent = tcMatch[1];
-            const cellText = tcContent
-              .replace(/<w:p(?:\s+[^>]*)?>/g, '\n')
-              .replace(/<[^>]+>/g, '')
-              .replace(/&amp;/g, '&')
-              .replace(/&lt;/g, '<')
-              .replace(/&gt;/g, '>')
-              .replace(/&quot;/g, '"')
-              .replace(/&apos;/g, "'")
-              .trim();
-            cells.push(cellText);
+
+            // Background color from w:tcPr -> w:shd
+            let bgColor: string | undefined;
+            const shdMatch = tcContent.match(/<w:shd\s+[^>]*w:fill="([^"]+)"/);
+            if (shdMatch && shdMatch[1]) {
+              const fillVal = shdMatch[1].trim();
+              if (fillVal.toLowerCase() !== 'auto' && fillVal.toLowerCase() !== 'clear' && fillVal.toLowerCase() !== 'none') {
+                bgColor = fillVal.startsWith('#') ? fillVal : `#${fillVal}`;
+              }
+            }
+
+            // ColSpan from w:gridSpan
+            let colSpan: number | undefined;
+            const gridSpanMatch = tcContent.match(/<w:gridSpan\s+[^>]*w:val="(\d+)"/);
+            if (gridSpanMatch) {
+              colSpan = parseInt(gridSpanMatch[1], 10);
+            }
+
+            // Cell paragraph alignment
+            let cellAlign: 'left' | 'center' | 'right' | 'justify' | undefined;
+            const jcMatch = tcContent.match(/<w:jc\s+[^>]*w:val="([^"]+)"/);
+            if (jcMatch) {
+              const val = jcMatch[1];
+              if (val === 'center') cellAlign = 'center';
+              else if (val === 'right') cellAlign = 'right';
+              else if (val === 'both') cellAlign = 'justify';
+              else cellAlign = 'left';
+            }
+
+            // Extract runs from cell
+            const cellRuns: DocxParsedRun[] = [];
+            const runRegex = /<w:r(?:\s+[^>]*)?>([\s\S]*?)<\/w:r>/g;
+            let rMatch: RegExpExecArray | null;
+            let cellText = '';
+            let hasBold = false;
+            let maxFontSize = isHeaderRow ? 14 : 13;
+
+            while ((rMatch = runRegex.exec(tcContent)) !== null) {
+              const rContent = rMatch[1];
+              const isBold = /<w:b(?:\s*\/|\s+[^>]*\/)?>/.test(rContent);
+              if (isBold) hasBold = true;
+              const isItalic = /<w:i(?:\s*\/|\s+[^>]*\/)?>/.test(rContent);
+              const isUnderline = /<w:u(?:\s*\/|\s+[^>]*\/)?>/.test(rContent);
+              const colorMatch = rContent.match(/<w:color\s+[^>]*w:val="([^"]+)"/);
+              const szMatch = rContent.match(/<w:sz\s+[^>]*w:val="([^"]+)"/);
+              const fontSizePt = szMatch ? Math.round(parseInt(szMatch[1], 10) / 2) : undefined;
+              if (fontSizePt && fontSizePt > maxFontSize) maxFontSize = fontSizePt;
+
+              const tMatch = rContent.match(/<w:t(?:\s+[^>]*)?>([\s\S]*?)<\/w:t>/);
+              if (tMatch) {
+                const text = tMatch[1]
+                  .replace(/&amp;/g, '&')
+                  .replace(/&lt;/g, '<')
+                  .replace(/&gt;/g, '>')
+                  .replace(/&quot;/g, '"')
+                  .replace(/&apos;/g, "'");
+                cellRuns.push({
+                  text,
+                  bold: isBold,
+                  italic: isItalic,
+                  underline: isUnderline,
+                  color: colorMatch ? `#${colorMatch[1]}` : undefined,
+                  fontSizePt
+                });
+                cellText += text;
+              }
+            }
+
+            // Fallback if no <w:r> found but text exists
+            if (!cellText) {
+              cellText = tcContent
+                .replace(/<w:p(?:\s+[^>]*)?>/g, '\n')
+                .replace(/<[^>]+>/g, '')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&apos;/g, "'")
+                .trim();
+            }
+
+            parsedCells.push({
+              text: cellText,
+              runs: cellRuns.length > 0 ? cellRuns : [{ text: cellText, bold: hasBold || isHeaderRow, fontSizePt: maxFontSize }],
+              align: cellAlign || (isHeaderRow ? 'center' : 'left'),
+              bgColor,
+              bold: hasBold || isHeaderRow,
+              fontSizePt: maxFontSize,
+              colSpan
+            });
+
+            stringCells.push(cellText);
             rawText += cellText + '\t';
           }
-          if (cells.length > 0) {
-            rows.push(cells);
+
+          if (parsedCells.length > 0) {
+            tableRows.push({
+              cells: parsedCells,
+              isHeader: isHeaderRow
+            });
+            rows.push(stringCells);
             rawText += '\n';
           }
         }
 
-        if (rows.length > 0) {
+        if (tableRows.length > 0) {
           elements.push({
             type: 'table',
-            rows
+            rows,
+            tableRows,
+            borderColors: {
+              outer: outerBorderColor,
+              inner: innerBorderColor
+            }
           });
         }
       }
