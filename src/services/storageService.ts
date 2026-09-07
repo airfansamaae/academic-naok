@@ -6,6 +6,9 @@ import {
   INITIAL_SUBMISSIONS, INITIAL_DOCUMENTS, INITIAL_ANNOUNCEMENTS 
 } from '../data/initialData';
 import Swal from 'sweetalert2';
+import * as XLSX from 'xlsx';
+import { parseDocxBinary } from '../utils/docxParser';
+import { saveFileToIndexedDb, getFileFromIndexedDb } from '../utils/indexedFileStore';
 
 const STORAGE_KEYS = {
   USERS: 'academic_users_v1',
@@ -17,6 +20,47 @@ const STORAGE_KEYS = {
   CURRENT_USER: 'academic_current_user_v1',
   LOCAL_VERSION: 'academic_data_version_v1',
 };
+
+// Safe localStorage setter to prevent QuotaExceededError when files are uploaded
+function safeSetLocalStorage(key: string, data: any): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (err: any) {
+    if (err?.name === 'QuotaExceededError' || err?.code === 22) {
+      console.warn(`[storageService] QuotaExceededError for ${key}. Preserving files in IndexedDB.`);
+      if (Array.isArray(data)) {
+        const lightweight = data.map((item: any) => {
+          if (item?.files && Array.isArray(item.files)) {
+            return {
+              ...item,
+              files: item.files.map((f: any) => ({
+                ...f,
+                fileDataUrl: undefined,
+              }))
+            };
+          }
+          if (item?.file && item.file?.fileDataUrl) {
+            return {
+              ...item,
+              file: {
+                ...item.file,
+                fileDataUrl: undefined,
+              }
+            };
+          }
+          return item;
+        });
+        try {
+          localStorage.setItem(key, JSON.stringify(lightweight));
+        } catch (innerErr) {
+          console.warn('[storageService] Safe save error:', innerErr);
+        }
+      }
+    } else {
+      console.error(`[storageService] Error saving ${key}:`, err);
+    }
+  }
+}
 
 export interface SyncStatusInfo {
   status: 'synced' | 'syncing' | 'offline';
@@ -835,7 +879,7 @@ export class StorageService {
       this.broadcastChange('submissions', 'insert', newSub);
     }
 
-    localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(submissions));
+    safeSetLocalStorage(STORAGE_KEYS.SUBMISSIONS, submissions);
     this.notify();
     return newSub;
   }
@@ -849,7 +893,7 @@ export class StorageService {
       }
       return s;
     });
-    localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(submissions));
+    safeSetLocalStorage(STORAGE_KEYS.SUBMISSIONS, submissions);
     if (updatedSub) {
       this.broadcastChange('submissions', 'update', updatedSub);
     }
@@ -884,7 +928,7 @@ export class StorageService {
       this.broadcastChange('submissions', 'update', submissions[subIndex]);
     }
 
-    localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(submissions));
+    safeSetLocalStorage(STORAGE_KEYS.SUBMISSIONS, submissions);
     this.notify();
     return true;
   }
@@ -904,7 +948,7 @@ export class StorageService {
     }
 
     const filtered = submissions.filter(s => s.id !== id);
-    localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(filtered));
+    safeSetLocalStorage(STORAGE_KEYS.SUBMISSIONS, filtered);
     this.broadcastChange('submissions', 'delete', { id });
     this.notify();
     return true;
@@ -943,7 +987,7 @@ export class StorageService {
     };
 
     docs.unshift(newDoc);
-    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(docs));
+    safeSetLocalStorage(STORAGE_KEYS.DOCUMENTS, docs);
     this.broadcastChange('documents', 'insert', newDoc);
     this.notify();
     return newDoc;
@@ -958,7 +1002,7 @@ export class StorageService {
       }
       return d;
     });
-    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(docs));
+    safeSetLocalStorage(STORAGE_KEYS.DOCUMENTS, docs);
     if (updatedDoc) {
       this.broadcastChange('documents', 'update', updatedDoc);
     }
@@ -979,7 +1023,7 @@ export class StorageService {
     }
 
     const filtered = docs.filter(d => d.id !== id);
-    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(filtered));
+    safeSetLocalStorage(STORAGE_KEYS.DOCUMENTS, filtered);
     this.broadcastChange('documents', 'delete', { id });
     this.notify();
     return true;
@@ -994,7 +1038,7 @@ export class StorageService {
       }
       return d;
     });
-    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(docs));
+    safeSetLocalStorage(STORAGE_KEYS.DOCUMENTS, docs);
     this.notify();
   }
 
@@ -1223,6 +1267,33 @@ export class StorageService {
       reader.readAsDataURL(file);
     });
 
+    // Extract authentic text & table content from the file
+    let genuinePreviewContent = '';
+    try {
+      if (previewType === 'doc') {
+        const arrayBuffer = await file.arrayBuffer();
+        const parsed = await parseDocxBinary(arrayBuffer);
+        if (parsed && parsed.rawText) {
+          genuinePreviewContent = parsed.rawText;
+        }
+      } else if (previewType === 'spreadsheet') {
+        const arrayBuffer = await file.arrayBuffer();
+        const wb = XLSX.read(arrayBuffer, { type: 'array' });
+        const firstSheet = wb.SheetNames[0];
+        if (firstSheet) {
+          genuinePreviewContent = XLSX.utils.sheet_to_csv(wb.Sheets[firstSheet]);
+        }
+      } else if (previewType === 'other' || file.type.includes('text')) {
+        genuinePreviewContent = await file.text();
+      }
+    } catch (extractErr) {
+      console.warn('[storageService] Content extraction notice:', extractErr);
+    }
+
+    if (!genuinePreviewContent) {
+      genuinePreviewContent = file.name.replace(/\.[^/.]+$/, '');
+    }
+
     if (gasUrl) {
       try {
         onProgress(15);
@@ -1262,7 +1333,7 @@ export class StorageService {
         const realViewUrl = (data && data.viewUrl) ? data.viewUrl : `https://drive.google.com/file/d/${realFileId}/view`;
         const realDownloadUrl = (data && data.downloadUrl) ? data.downloadUrl : `https://drive.google.com/uc?export=download&id=${realFileId}`;
 
-        return {
+        const uploadedFileRecord: UploadedFile = {
           id: 'file_' + Date.now(),
           name: file.name,
           size: file.size,
@@ -1272,18 +1343,27 @@ export class StorageService {
           downloadUrl: realDownloadUrl,
           viewUrl: realViewUrl,
           previewType: previewType,
-          previewContent: `[ไฟล์ที่จัดเก็บบน Google Drive]: ${file.name}\nGoogle Drive File ID: ${realFileId}\nจัดเก็บในโฟลเดอร์หลัก ID: 1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-`,
+          previewContent: genuinePreviewContent,
           fileDataUrl: fullDataUrl,
           uploadedAt: new Date().toISOString(),
         };
+
+        // Persist authentic binary to IndexedDB
+        await saveFileToIndexedDb(uploadedFileRecord.id, fullDataUrl, file, {
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+        });
+
+        return uploadedFileRecord;
       } catch (err) {
         console.warn('[GAS Direct Upload] Fallback to simulated local record due to network / CORS:', err);
       }
     }
 
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
       let progress = 0;
-      const interval = setInterval(() => {
+      const interval = setInterval(async () => {
         progress += Math.floor(Math.random() * 25) + 20;
         if (progress >= 100) {
           progress = 100;
@@ -1301,10 +1381,17 @@ export class StorageService {
             downloadUrl: `https://drive.google.com/uc?export=download&id=${fileId}`,
             viewUrl: `https://drive.google.com/file/d/${fileId}/view`,
             previewType: previewType,
-            previewContent: `[เนื้อหาของไฟล์: ${file.name}]\nขนาดไฟล์: ${(file.size / (1024 * 1024)).toFixed(2)} MB\nอัปโหลดเข้าสู่ Google Drive Folder ID: 1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-\n\nเอกสารนี้ได้รับการจัดเก็บอย่างปลอดภัย พร้อมสำหรับให้คณะครูและผู้ดูแลระบบตรวจงาน`,
+            previewContent: genuinePreviewContent,
             fileDataUrl: fullDataUrl,
             uploadedAt: new Date().toISOString(),
           };
+
+          // Persist authentic binary to IndexedDB
+          await saveFileToIndexedDb(uploadedFile.id, fullDataUrl, file, {
+            name: file.name,
+            size: file.size,
+            mimeType: file.type,
+          });
 
           resolve(uploadedFile);
         } else {

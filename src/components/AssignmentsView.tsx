@@ -35,6 +35,9 @@ import { storage } from '../services/storageService';
 import Swal from 'sweetalert2';
 import { DateRangePicker } from './DateRangePicker';
 import { formatThaiDate, formatThaiDateRange } from '../lib/dateUtils';
+import { saveFileToIndexedDb } from '../utils/indexedFileStore';
+import { parseDocxBinary } from '../utils/docxParser';
+import * as XLSX from 'xlsx';
 
 interface AssignmentsViewProps {
   currentUser: User | null;
@@ -328,7 +331,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
     }
   };
 
-  // Preview local file before upload
+  // Preview local file before upload with authentic extraction & IndexedDB persistence
   const handlePreviewLocalFile = async (file: File) => {
     const dataUrl = await new Promise<string>((resolve) => {
       const reader = new FileReader();
@@ -344,8 +347,37 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
     else if (lower.match(/\.(pptx|ppt)$/)) previewType = 'presentation';
     else if (lower.match(/\.(docx|doc)$/)) previewType = 'doc';
 
+    let genuineContent = '';
+    try {
+      if (previewType === 'doc') {
+        const arrayBuffer = await file.arrayBuffer();
+        const parsed = await parseDocxBinary(arrayBuffer);
+        if (parsed && parsed.rawText) {
+          genuineContent = parsed.rawText;
+        }
+      } else if (previewType === 'spreadsheet') {
+        const arrayBuffer = await file.arrayBuffer();
+        const wb = XLSX.read(arrayBuffer, { type: 'array' });
+        const firstSheet = wb.SheetNames[0];
+        if (firstSheet) {
+          genuineContent = XLSX.utils.sheet_to_csv(wb.Sheets[firstSheet]);
+        }
+      } else if (previewType === 'other' || file.type.includes('text')) {
+        genuineContent = await file.text();
+      }
+    } catch (e) {
+      console.warn('Preview extraction notice:', e);
+    }
+
+    const tempFileId = 'temp_' + Date.now();
+    await saveFileToIndexedDb(tempFileId, dataUrl, file, {
+      name: file.name,
+      size: file.size,
+      mimeType: file.type,
+    });
+
     const tempUploadedFile: UploadedFile = {
-      id: 'temp_' + Date.now(),
+      id: tempFileId,
       name: file.name,
       size: file.size,
       mimeType: file.type || 'application/octet-stream',
@@ -354,7 +386,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
       downloadUrl: '',
       viewUrl: '',
       previewType,
-      previewContent: `[ไฟล์ที่เลือกเตรียมส่ง]: ${file.name}`,
+      previewContent: genuineContent || file.name.replace(/\.[^/.]+$/, ''),
       fileDataUrl: dataUrl,
       uploadedAt: new Date().toISOString(),
     };

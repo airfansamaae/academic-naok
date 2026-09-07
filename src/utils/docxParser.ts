@@ -15,6 +15,7 @@ export interface DocxParsedParagraph {
   runs: DocxParsedRun[];
   imageSrc?: string | null;
   isPageBreak?: boolean;
+  isIndented?: boolean;
 }
 
 export interface DocxParsedTableCell {
@@ -87,10 +88,17 @@ export async function parseDocxBinary(
       data = input;
     }
 
-    const zip = await JSZip.loadAsync(data);
-    const docXmlFile = zip.file('word/document.xml');
+    let zip: JSZip | null = null;
+    try {
+      zip = await JSZip.loadAsync(data);
+    } catch {
+      zip = null;
+    }
+
+    const docXmlFile = zip ? zip.file('word/document.xml') : null;
     if (!docXmlFile) {
-      return { pages: [], totalPages: 0, rawText: '' };
+      // Fallback: Check if file is HTML disguised as .doc (common in school MIS exports) or RTF or plain text
+      return parseNonDocxDocument(data);
     }
 
     const xml = await docXmlFile.async('text');
@@ -150,6 +158,7 @@ export async function parseDocxBinary(
           else if (jcMatch[1] === 'right') align = 'right';
           else if (jcMatch[1] === 'both') align = 'justify';
         }
+        const isIndented = /<w:ind\s+[^>]*(?:w:firstLine|w:left)="([1-9]\d*)"/.test(content);
 
         // Image check
         let imageSrc: string | null = null;
@@ -197,7 +206,8 @@ export async function parseDocxBinary(
             align,
             runs,
             imageSrc,
-            isPageBreak: isBreak
+            isPageBreak: isBreak,
+            isIndented
           });
           rawText += '\n';
         }
@@ -386,7 +396,268 @@ export async function parseDocxBinary(
       rawText: rawText.trim()
     };
   } catch (err) {
-    console.error('Error parsing docx binary:', err);
-    return { pages: [], totalPages: 0, rawText: '' };
+    console.warn('Error in docx binary parse, attempting non-docx fallback:', err);
+    try {
+      let u8: Uint8Array;
+      if (typeof input === 'string') {
+        const b64 = input.includes(';base64,') ? input.split(';base64,')[1] : input;
+        const raw = atob(b64.trim());
+        u8 = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) u8[i] = raw.charCodeAt(i);
+      } else if (input instanceof Uint8Array) {
+        u8 = input;
+      } else {
+        u8 = new Uint8Array(input);
+      }
+      return parseNonDocxDocument(u8);
+    } catch (fbErr) {
+      console.error('Non-docx fallback failed:', fbErr);
+      return { pages: [], totalPages: 0, rawText: '' };
+    }
   }
+}
+
+/**
+ * Fallback parser for files with .doc extension or non-zip formats
+ * such as HTML disguised as .doc (common in school MIS/OBEC/SGS exports),
+ * RTF, or text documents with embedded tables.
+ */
+export function parseNonDocxDocument(data: Uint8Array | ArrayBuffer): DocxParseResult {
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  
+  // Attempt decoding as UTF-8 first, fallback to Windows-874 / TIS-620 if available
+  let text = '';
+  try {
+    text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  } catch {
+    text = '';
+  }
+
+  // If text contains Thai encoded in Windows-874 / TIS-620 or replacement chars
+  if (!text || text.includes('\uFFFD')) {
+    try {
+      const thaiDecoder = new TextDecoder('windows-874', { fatal: false });
+      const thaiText = thaiDecoder.decode(bytes);
+      if (thaiText && !thaiText.includes('\uFFFD')) {
+        text = thaiText;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const elements: DocxElement[] = [];
+  let rawText = '';
+
+  // 1. Check if the document is HTML format disguised as .doc
+  const lowerText = text.toLowerCase();
+  if (typeof DOMParser !== 'undefined' && (lowerText.includes('<table') || lowerText.includes('<html') || lowerText.includes('<!doctype'))) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, 'text/html');
+      
+      const body = doc.body;
+      if (body) {
+        // Find top-level or structural nodes
+        const nodes = Array.from(body.children);
+        if (nodes.length > 0) {
+          for (const node of nodes) {
+            const tagName = node.tagName.toLowerCase();
+
+            if (tagName === 'table') {
+              const tableRows: DocxParsedTableRow[] = [];
+              const stringRows: string[][] = [];
+              const trElements = Array.from(node.querySelectorAll('tr'));
+
+              trElements.forEach((tr, rIdx) => {
+                const isHeader = rIdx === 0 || tr.querySelector('th') !== null;
+                const cellElements = Array.from(tr.children).filter(
+                  c => c.tagName.toLowerCase() === 'td' || c.tagName.toLowerCase() === 'th'
+                );
+
+                const parsedCells: DocxParsedTableCell[] = [];
+                const strCells: string[] = [];
+
+                cellElements.forEach((cellEl) => {
+                  const cellHtml = cellEl as HTMLElement;
+                  const cellText = (cellHtml.innerText || cellHtml.textContent || '').trim();
+                  const colSpan = cellHtml.getAttribute('colspan') ? parseInt(cellHtml.getAttribute('colspan')!, 10) : undefined;
+                  const rowSpan = cellHtml.getAttribute('rowspan') ? parseInt(cellHtml.getAttribute('rowspan')!, 10) : undefined;
+                  const alignAttr = cellHtml.getAttribute('align') || cellHtml.style.textAlign;
+                  let align: 'left' | 'center' | 'right' | 'justify' = isHeader ? 'center' : 'left';
+                  if (alignAttr === 'center') align = 'center';
+                  else if (alignAttr === 'right') align = 'right';
+
+                  const isBold = isHeader || cellHtml.style.fontWeight === 'bold' || cellHtml.querySelector('b, strong') !== null;
+                  const bgColor = cellHtml.style.backgroundColor || (cellHtml.getAttribute('bgcolor') || (isHeader ? '#F1F5F9' : undefined));
+
+                  parsedCells.push({
+                    text: cellText,
+                    runs: [{ text: cellText, bold: isBold, fontSizePt: isHeader ? 14 : 13 }],
+                    align,
+                    bgColor: bgColor ? bgColor : undefined,
+                    bold: isBold,
+                    fontSizePt: isHeader ? 14 : 13,
+                    colSpan: colSpan && colSpan > 1 ? colSpan : undefined,
+                    rowSpan: rowSpan && rowSpan > 1 ? rowSpan : undefined
+                  });
+                  strCells.push(cellText);
+                });
+
+                if (parsedCells.length > 0) {
+                  tableRows.push({ isHeader, cells: parsedCells });
+                  stringRows.push(strCells);
+                }
+              });
+
+              if (tableRows.length > 0) {
+                elements.push({
+                  type: 'table',
+                  rows: stringRows,
+                  tableRows,
+                  borderColors: { outer: '#475569', inner: '#94A3B8' }
+                });
+              }
+            } else {
+              // Paragraph, header, or container
+              const pText = (node.textContent || '').trim();
+              if (pText) {
+                const alignAttr = node.getAttribute('align') || (node as HTMLElement).style?.textAlign;
+                let align: 'left' | 'center' | 'right' | 'justify' = 'left';
+                if (alignAttr === 'center') align = 'center';
+                else if (alignAttr === 'right') align = 'right';
+
+                const isHeading = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName);
+                const isBold = isHeading || (node as HTMLElement).style?.fontWeight === 'bold' || node.querySelector('b, strong') !== null;
+
+                elements.push({
+                  type: 'paragraph',
+                  align,
+                  runs: [{
+                    text: pText,
+                    bold: isBold,
+                    fontSizePt: isHeading ? 18 : 16
+                  }],
+                  isIndented: false
+                });
+                rawText += pText + '\n';
+              }
+            }
+          }
+        }
+      }
+    } catch (htmlErr) {
+      console.warn('HTML parse error:', htmlErr);
+    }
+  }
+
+  // 2. If no elements found from HTML, check for plain text lines or tables
+  if (elements.length === 0 && text) {
+    const rawLines = text
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n');
+
+    let i = 0;
+    while (i < rawLines.length) {
+      const line = rawLines[i].trim();
+      if (!line) {
+        i++;
+        continue;
+      }
+
+      // Check table row (pipe or tab delimited)
+      if (line.startsWith('|') || (line.includes('|') && line.split('|').length >= 3) || line.includes('\t')) {
+        const stringRows: string[][] = [];
+        const structuredRows: DocxParsedTableRow[] = [];
+
+        while (i < rawLines.length) {
+          const curLine = rawLines[i].trim();
+          if (!curLine) break;
+          if (/^\|?(\s*:?-+:?\s*\|)+\s*$/.test(curLine)) {
+            i++;
+            continue;
+          }
+          if (curLine.includes('|') || curLine.includes('\t')) {
+            const cells = curLine.includes('|')
+              ? curLine.split('|').map(c => c.trim()).filter((c, idx, arr) => idx > 0 && idx < arr.length - (curLine.endsWith('|') ? 1 : 0) ? true : c.length > 0)
+              : curLine.split('\t').map(c => c.trim());
+
+            if (cells.length > 0) {
+              const isHeader = structuredRows.length === 0;
+              stringRows.push(cells);
+              structuredRows.push({
+                isHeader,
+                cells: cells.map((c, cIdx) => ({
+                  text: c,
+                  align: isHeader ? 'center' : cIdx === 0 ? 'left' : 'left',
+                  bgColor: isHeader ? '#F1F5F9' : undefined,
+                  bold: isHeader || (cIdx === 0 && !isHeader),
+                  fontSizePt: isHeader ? 14 : 13,
+                  runs: [{ text: c, bold: isHeader || (cIdx === 0 && !isHeader) }]
+                }))
+              });
+            }
+            i++;
+          } else {
+            break;
+          }
+        }
+
+        if (stringRows.length > 0) {
+          elements.push({
+            type: 'table',
+            rows: stringRows,
+            tableRows: structuredRows,
+            borderColors: { outer: '#475569', inner: '#94A3B8' }
+          });
+        }
+        continue;
+      }
+
+      // Standard paragraph
+      const isTitle = line.startsWith('โครงสร้าง') || line.startsWith('รายงาน') || line.startsWith('แบบบันทึก') || line.startsWith('แบบประเมิน');
+      const isHeading = /^\d+\./.test(line) || line.startsWith('เรื่อง:') || line.startsWith('เรื่อง ') || line.startsWith('หน่วยที่');
+
+      elements.push({
+        type: 'paragraph',
+        align: isTitle ? 'center' : 'left',
+        runs: [{
+          text: line,
+          bold: isTitle || isHeading,
+          fontSizePt: isTitle ? 18 : isHeading ? 16 : 16
+        }],
+        isIndented: !isTitle && !isHeading && (rawLines[i].startsWith('\t') || rawLines[i].startsWith('    '))
+      });
+      rawText += line + '\n';
+      i++;
+    }
+  }
+
+  // 3. Paginate into A4 pages
+  const pages: DocxParsedPage[] = [];
+  let curPage: DocxParsedPage = { pageNumber: 1, elements: [] };
+  let itemsCount = 0;
+  const maxPerPage = 14;
+
+  for (const el of elements) {
+    curPage.elements.push(el);
+    itemsCount += el.type === 'table' ? Math.max(3, el.rows.length) : 1;
+
+    if (itemsCount >= maxPerPage) {
+      pages.push(curPage);
+      curPage = { pageNumber: pages.length + 1, elements: [] };
+      itemsCount = 0;
+    }
+  }
+
+  if (curPage.elements.length > 0 || pages.length === 0) {
+    pages.push(curPage);
+  }
+
+  return {
+    pages,
+    totalPages: pages.length,
+    rawText: rawText.trim()
+  };
 }

@@ -1,4 +1,5 @@
 import { UploadedFile } from '../types';
+import { setActivePreviewToIndexedDb, saveFileToIndexedDb } from './indexedFileStore';
 
 /**
  * Standardized CSS for direct A4 container viewing
@@ -525,18 +526,8 @@ export function buildStandardizedA4ViewerHtml(
 
       const pageHtml = `
         <div class="a4-standardized-container" data-a4-page="${p + 1}">
-          <div style="display: flex; justify-content: space-between; padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid #cbd5e1; font-size: 13pt; color: #475569; user-select: none;">
-            <span style="font-weight: 700; color: #1e293b;">${displayTitle}</span>
-            <span style="color: #64748b; font-size: 12pt;">เอกสารวิชาการฉบับจริง</span>
-          </div>
-
           <div style="flex: 1; font-family: 'TH Sarabun New', Sarabun, sans-serif;">
             ${pageElements.join('')}
-          </div>
-
-          <div style="display: flex; justify-content: space-between; padding-top: 12px; margin-top: 16px; border-top: 1px solid #cbd5e1; font-size: 12pt; color: #64748b; user-select: none;">
-            <span>ขนาดกระดาษมาตรฐาน A4 (210 × 297 มม.) • Font: TH Sarabun</span>
-            <span style="color: #64748b;">โรงเรียนกระบี่วิทยานุสรณ์</span>
           </div>
         </div>
       `;
@@ -624,13 +615,15 @@ export function buildStandardizedA4ViewerHtml(
     ${rawContentHtml}
   </main>
 
-  <!-- FLOATING SCROLL PAGE INDICATOR (เมื่อเลื่อนลงมา ก็จะมีหน้าให้เห็นว่า อยู่หน้าที่เท่าไร) -->
+  <!-- FLOATING SCROLL PAGE INDICATOR (ลบเฉพาะสำหรับไฟล์ PDF เท่านั้น ไฟล์อื่นคงไว้ตามคำสั่ง) -->
+  ${!isPdf ? `
   <div id="page-indicator" class="floating-page-hud" style="display: none;">
     <span>กำลังดู: หน้า</span>
     <span id="current-page-num" class="page-chip">1</span>
     <span id="total-page-num" style="color: #94a3b8;">/ 1</span>
     <span style="border-left: 1px solid #334155; padding-left: 8px; font-size: 11px; color: #cbd5e1;">A4 (210 × 297 มม.) • TH Sarabun</span>
   </div>
+  ` : ''}
 
   <script>
     // Download handler
@@ -662,8 +655,10 @@ export function buildStandardizedA4ViewerHtml(
       }
     }
 
-    // Dynamic Scroll Page Tracking (เมื่อเลื่อนลงมา ก็จะมีหน้าให้เห็นว่า อยู่หน้าที่เท่าไร)
+    // Dynamic Scroll Page Tracking (เมื่อเลื่อนลงมา ก็จะมีหน้าให้เห็นว่า อยู่หน้าที่เท่าไร - ยกเว้น PDF)
     (function() {
+      const isPdf = ${JSON.stringify(Boolean(isPdf))};
+      if (isPdf) return;
       const pages = document.querySelectorAll('[data-a4-page]');
       const hud = document.getElementById('page-indicator');
       const curNum = document.getElementById('current-page-num');
@@ -710,13 +705,28 @@ export function openAuthenticFileInNewTab(
     timestamp: Date.now(),
   };
 
-  // 1. Store in session and local caches so new tab can immediately resolve it
+  // 1. Store in memory, sessionStorage, localStorage, and IndexedDB so new tab can immediately resolve it
   try {
-    sessionStorage.setItem('academic_active_raw_file', JSON.stringify(payload));
-    localStorage.setItem('academic_active_raw_file', JSON.stringify(payload));
     (window as any).__LAST_ACTIVE_RAW_FILE__ = payload;
+    sessionStorage.setItem('academic_active_raw_file', JSON.stringify(payload));
   } catch (err) {
     console.warn('[fileViewer] Cache storage warning:', err);
+  }
+
+  try {
+    localStorage.setItem('academic_active_raw_file', JSON.stringify(payload));
+  } catch {
+    // Quota might be exceeded for large files - safely handled by IndexedDB below
+  }
+
+  // Persist to IndexedDB asynchronously
+  setActivePreviewToIndexedDb(payload).catch((e) => console.warn('[fileViewer] IDB preview set warning:', e));
+  if (file.id && file.fileDataUrl) {
+    saveFileToIndexedDb(file.id, file.fileDataUrl, undefined, {
+      name: file.name,
+      size: file.size,
+      mimeType: file.mimeType,
+    }).catch((e) => console.warn('[fileViewer] IDB file save warning:', e));
   }
 
   // 2. Build target URL with strict A4 and no-viewer parameters

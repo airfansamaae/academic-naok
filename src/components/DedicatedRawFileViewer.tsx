@@ -22,6 +22,7 @@ import { renderAsync } from 'docx-preview';
 import * as XLSX from 'xlsx';
 import { parseDocxBinary, DocxParsedPage, DocxElement } from '../utils/docxParser';
 import { getSafeGoogleDrivePreviewUrl, openAuthenticFileInNewTab } from '../utils/fileViewer';
+import { getActivePreviewFromIndexedDb, getFileFromIndexedDb } from '../utils/indexedFileStore';
 
 /**
  * Enhanced helper to split text preview content into structured A4 pages
@@ -31,7 +32,22 @@ import { getSafeGoogleDrivePreviewUrl, openAuthenticFileInNewTab } from '../util
 function createA4PagesFromText(text: string, defaultTitle?: string): DocxParsedPage[] {
   if (!text) return [];
 
-  const rawLines = text.split('\n');
+  const rawLines = text
+    .split('\n')
+    .filter(l => {
+      const trimmed = l.trim();
+      return !trimmed.startsWith('Google Drive File ID:') &&
+             !trimmed.startsWith('จัดเก็บในโฟลเดอร์หลัก ID:') &&
+             !trimmed.startsWith('ขนาดไฟล์: ') &&
+             !trimmed.includes('อัปโหลดเข้าสู่ Google Drive Folder ID:') &&
+             !trimmed.includes('เอกสารนี้ได้รับการจัดเก็บอย่างปลอดภัย');
+    })
+    .map(l => {
+      return l
+        .replace(/\[ไฟล์ที่จัดเก็บบน Google Drive\]:\s*/g, '')
+        .replace(/\[ไฟล์ที่เลือกเตรียมส่ง\]:\s*/g, '')
+        .replace(/\[เนื้อหาของไฟล์:\s*[^\]]+\]/g, '');
+    });
   const elements: DocxElement[] = [];
 
   let i = 0;
@@ -114,9 +130,12 @@ function createA4PagesFromText(text: string, defaultTitle?: string): DocxParsedP
       line.startsWith('จุดประสงค์') ||
       line.startsWith('สาระสำคัญ');
 
+    const hasIndent = rawLines[i].startsWith('\t') || rawLines[i].startsWith('    ') || rawLines[i].startsWith('   ');
+
     elements.push({
       type: 'paragraph',
       align: isTitle ? 'center' : 'left',
+      isIndented: hasIndent,
       runs: [
         {
           text: line,
@@ -225,161 +244,241 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
 
   // 1. Multi-tier resolution to guarantee authentic raw file is retrieved without fail
   useEffect(() => {
-    if (initialFile) {
-      setFile(initialFile);
-      if (initialTitle) setAssignmentTitle(initialTitle);
-      if (initialSubmitter) setSubmitterName(initialSubmitter);
-      return;
-    }
+    let isCancelled = false;
 
-    let resolvedFile: UploadedFile | null = null;
-    let resolvedTitle = '';
-    let resolvedSubmitter = '';
-
-    // Tier 1: Check window payload attached by opener
-    if (typeof window !== 'undefined') {
-      const winPayload = (window as any).__RAW_FILE_PAYLOAD__;
-      if (winPayload?.file) {
-        resolvedFile = winPayload.file;
-        resolvedTitle = winPayload.assignmentTitle || '';
-        resolvedSubmitter = winPayload.submitterName || '';
-      }
-
-      // Tier 2: Check window.opener memory reference
-      if (!resolvedFile && window.opener) {
-        try {
-          const openerPayload = (window.opener as any).__LAST_ACTIVE_RAW_FILE__;
-          if (openerPayload?.file) {
-            resolvedFile = openerPayload.file;
-            resolvedTitle = openerPayload.assignmentTitle || '';
-            resolvedSubmitter = openerPayload.submitterName || '';
-          }
-        } catch {
-          // ignore cross-origin opener
-        }
-      }
-
-      // Tier 3: Check sessionStorage
-      if (!resolvedFile) {
-        try {
-          const cachedSession = sessionStorage.getItem('academic_active_raw_file');
-          if (cachedSession) {
-            const parsed = JSON.parse(cachedSession);
-            if (parsed?.file) {
-              resolvedFile = parsed.file;
-              resolvedTitle = parsed.assignmentTitle || '';
-              resolvedSubmitter = parsed.submitterName || '';
-            }
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      // Tier 4: Check localStorage
-      if (!resolvedFile) {
-        try {
-          const cachedLocal = localStorage.getItem('academic_active_raw_file');
-          if (cachedLocal) {
-            const parsed = JSON.parse(cachedLocal);
-            if (parsed?.file) {
-              resolvedFile = parsed.file;
-              resolvedTitle = parsed.assignmentTitle || '';
-              resolvedSubmitter = parsed.submitterName || '';
-            }
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      // Tier 5: Check URL params with deep storage lookup
-      if (!resolvedFile) {
-        const params = new URLSearchParams(window.location.search);
-        const fileId = params.get('file_id');
-        const urlName = params.get('name');
-        const urlMime = params.get('mime');
-        resolvedTitle = params.get('title') || '';
-        resolvedSubmitter = params.get('uploader') || '';
-
-        if (fileId) {
+    const resolveFile = async () => {
+      if (initialFile) {
+        let activeFile = initialFile;
+        if (!activeFile.fileDataUrl && activeFile.id) {
           try {
-            // Search in documents
-            const docs = storage.getDocuments();
-            const foundDoc = docs.find((d) => d.file?.id === fileId || d.id === fileId);
-            if (foundDoc?.file) {
-              resolvedFile = foundDoc.file;
-              if (!resolvedTitle) resolvedTitle = foundDoc.title;
-              if (!resolvedSubmitter) resolvedSubmitter = foundDoc.uploaderName;
+            const idbRecord = await getFileFromIndexedDb(activeFile.id);
+            if (idbRecord?.dataUrl) {
+              activeFile = { ...activeFile, fileDataUrl: idbRecord.dataUrl };
             }
+          } catch {}
+        }
+        if (!isCancelled) {
+          setFile(activeFile);
+          if (initialTitle) setAssignmentTitle(initialTitle);
+          if (initialSubmitter) setSubmitterName(initialSubmitter);
+        }
+        return;
+      }
 
-            // Search in submissions
-            if (!resolvedFile) {
-              const subs = storage.getSubmissions();
-              for (const sub of subs) {
-                const found = sub.files.find((f) => f.id === fileId);
-                if (found) {
-                  resolvedFile = found;
-                  if (!resolvedTitle) resolvedTitle = sub.assignmentTitle;
-                  if (!resolvedSubmitter) resolvedSubmitter = sub.memberName;
-                  break;
-                }
+      let resolvedFile: UploadedFile | null = null;
+      let resolvedTitle = '';
+      let resolvedSubmitter = '';
+
+      // Tier 1: Check window payload attached by opener
+      if (typeof window !== 'undefined') {
+        const winPayload = (window as any).__RAW_FILE_PAYLOAD__;
+        if (winPayload?.file) {
+          resolvedFile = winPayload.file;
+          resolvedTitle = winPayload.assignmentTitle || '';
+          resolvedSubmitter = winPayload.submitterName || '';
+        }
+
+        // Tier 2: Check window.opener memory reference
+        if (!resolvedFile && window.opener) {
+          try {
+            const openerPayload = (window.opener as any).__LAST_ACTIVE_RAW_FILE__;
+            if (openerPayload?.file) {
+              resolvedFile = openerPayload.file;
+              resolvedTitle = openerPayload.assignmentTitle || '';
+              resolvedSubmitter = openerPayload.submitterName || '';
+            }
+          } catch {
+            // ignore cross-origin opener
+          }
+        }
+
+        // Tier 3: Check sessionStorage
+        if (!resolvedFile) {
+          try {
+            const cachedSession = sessionStorage.getItem('academic_active_raw_file');
+            if (cachedSession) {
+              const parsed = JSON.parse(cachedSession);
+              if (parsed?.file) {
+                resolvedFile = parsed.file;
+                resolvedTitle = parsed.assignmentTitle || '';
+                resolvedSubmitter = parsed.submitterName || '';
               }
             }
+          } catch {
+            // ignore
+          }
+        }
 
-            // Search in INITIAL_DOCUMENTS
-            if (!resolvedFile) {
-              const initDoc = INITIAL_DOCUMENTS.find((d) => d.file?.id === fileId || d.id === fileId);
-              if (initDoc?.file) {
-                resolvedFile = initDoc.file;
-                if (!resolvedTitle) resolvedTitle = initDoc.title;
-                if (!resolvedSubmitter) resolvedSubmitter = initDoc.uploaderName;
+        // Tier 4: Check localStorage
+        if (!resolvedFile) {
+          try {
+            const cachedLocal = localStorage.getItem('academic_active_raw_file');
+            if (cachedLocal) {
+              const parsed = JSON.parse(cachedLocal);
+              if (parsed?.file) {
+                resolvedFile = parsed.file;
+                resolvedTitle = parsed.assignmentTitle || '';
+                resolvedSubmitter = parsed.submitterName || '';
               }
             }
+          } catch {
+            // ignore
+          }
+        }
 
-            // Search in INITIAL_SUBMISSIONS
-            if (!resolvedFile) {
-              for (const sub of INITIAL_SUBMISSIONS) {
-                const found = sub.files.find((f) => f.id === fileId);
-                if (found) {
-                  resolvedFile = found;
-                  if (!resolvedTitle) resolvedTitle = sub.assignmentTitle;
-                  if (!resolvedSubmitter) resolvedSubmitter = sub.memberName;
-                  break;
-                }
-              }
+        // Tier 5: Check IndexedDB active preview
+        if (!resolvedFile) {
+          try {
+            const idbPayload = await getActivePreviewFromIndexedDb();
+            if (idbPayload?.file) {
+              resolvedFile = idbPayload.file;
+              resolvedTitle = idbPayload.assignmentTitle || '';
+              resolvedSubmitter = idbPayload.submitterName || '';
             }
           } catch (e) {
-            console.warn('[DedicatedRawFileViewer] storage lookup error:', e);
+            console.warn('[DedicatedRawFileViewer] IDB active preview lookup:', e);
           }
         }
 
-        // Tier 6: Construct minimal UploadedFile from URL parameters if available
-        if (!resolvedFile && urlName) {
-          const pType = params.get('preview_type') as any || 'other';
-          resolvedFile = {
-            id: fileId || 'url-resolved-file',
-            name: urlName,
-            size: 1024 * 1024,
-            mimeType: urlMime || 'application/octet-stream',
-            driveFileId: '',
-            downloadUrl: '',
-            viewUrl: '',
-            previewType: pType,
-            uploadedAt: new Date().toISOString(),
-          };
+        // Tier 6: Check URL params with deep storage & IndexedDB lookup
+        if (!resolvedFile) {
+          const params = new URLSearchParams(window.location.search);
+          const fileId = params.get('file_id');
+          const urlName = params.get('name');
+          const urlMime = params.get('mime');
+          resolvedTitle = params.get('title') || '';
+          resolvedSubmitter = params.get('uploader') || '';
+
+          if (fileId) {
+            // Check IndexedDB by fileId first
+            try {
+              const idbFile = await getFileFromIndexedDb(fileId);
+              if (idbFile) {
+                const fileName = idbFile.metadata?.name || urlName || 'document';
+                const lowerFileName = fileName.toLowerCase();
+                const guessedPreviewType = lowerFileName.endsWith('.pdf')
+                  ? 'pdf'
+                  : lowerFileName.match(/\.(xlsx|xls)$/)
+                  ? 'spreadsheet'
+                  : lowerFileName.match(/\.(png|jpg|jpeg|webp)$/)
+                  ? 'image'
+                  : 'doc';
+
+                resolvedFile = {
+                  id: fileId,
+                  name: fileName,
+                  size: idbFile.metadata?.size || 1024 * 1024,
+                  mimeType: idbFile.metadata?.mimeType || urlMime || 'application/octet-stream',
+                  driveFileId: '',
+                  downloadUrl: '',
+                  viewUrl: '',
+                  previewType: guessedPreviewType,
+                  fileDataUrl: idbFile.dataUrl,
+                  uploadedAt: new Date().toISOString(),
+                };
+              }
+            } catch (e) {
+              console.warn('[DedicatedRawFileViewer] IDB lookup error:', e);
+            }
+
+            if (!resolvedFile) {
+              try {
+                // Search in documents
+                const docs = storage.getDocuments();
+                const foundDoc = docs.find((d) => d.file?.id === fileId || d.id === fileId);
+                if (foundDoc?.file) {
+                  resolvedFile = foundDoc.file;
+                  if (!resolvedTitle) resolvedTitle = foundDoc.title;
+                  if (!resolvedSubmitter) resolvedSubmitter = foundDoc.uploaderName;
+                }
+
+                // Search in submissions
+                if (!resolvedFile) {
+                  const subs = storage.getSubmissions();
+                  for (const sub of subs) {
+                    const found = sub.files.find((f) => f.id === fileId);
+                    if (found) {
+                      resolvedFile = found;
+                      if (!resolvedTitle) resolvedTitle = sub.assignmentTitle;
+                      if (!resolvedSubmitter) resolvedSubmitter = sub.memberName;
+                      break;
+                    }
+                  }
+                }
+
+                // Search in INITIAL_DOCUMENTS
+                if (!resolvedFile) {
+                  const initDoc = INITIAL_DOCUMENTS.find((d) => d.file?.id === fileId || d.id === fileId);
+                  if (initDoc?.file) {
+                    resolvedFile = initDoc.file;
+                    if (!resolvedTitle) resolvedTitle = initDoc.title;
+                    if (!resolvedSubmitter) resolvedSubmitter = initDoc.uploaderName;
+                  }
+                }
+
+                // Search in INITIAL_SUBMISSIONS
+                if (!resolvedFile) {
+                  for (const sub of INITIAL_SUBMISSIONS) {
+                    const found = sub.files.find((f) => f.id === fileId);
+                    if (found) {
+                      resolvedFile = found;
+                      if (!resolvedTitle) resolvedTitle = sub.assignmentTitle;
+                      if (!resolvedSubmitter) resolvedSubmitter = sub.memberName;
+                      break;
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn('[DedicatedRawFileViewer] storage lookup error:', e);
+              }
+            }
+          }
+
+          // Tier 7: Construct minimal UploadedFile from URL parameters if available
+          if (!resolvedFile && urlName) {
+            const pType = params.get('preview_type') as any || 'other';
+            resolvedFile = {
+              id: fileId || 'url-resolved-file',
+              name: urlName,
+              size: 1024 * 1024,
+              mimeType: urlMime || 'application/octet-stream',
+              driveFileId: '',
+              downloadUrl: '',
+              viewUrl: '',
+              previewType: pType,
+              uploadedAt: new Date().toISOString(),
+            };
+          }
         }
       }
-    }
 
-    if (resolvedFile) {
-      setFile(resolvedFile);
-      if (resolvedTitle) setAssignmentTitle(resolvedTitle);
-      if (resolvedSubmitter) setSubmitterName(resolvedSubmitter);
-    } else {
-      setError('ไม่พบข้อมูลไฟล์ต้นฉบับที่ต้องการเปิด กรุณากลับไปที่หน้าหลักแล้วลองใหม่อีกครั้ง');
-      setLoading(false);
-    }
+      // If resolved file is missing binary dataUrl, check IndexedDB for binary
+      if (resolvedFile && !resolvedFile.fileDataUrl && resolvedFile.id) {
+        try {
+          const idbRecord = await getFileFromIndexedDb(resolvedFile.id);
+          if (idbRecord?.dataUrl) {
+            resolvedFile = { ...resolvedFile, fileDataUrl: idbRecord.dataUrl };
+          }
+        } catch {}
+      }
+
+      if (isCancelled) return;
+
+      if (resolvedFile) {
+        setFile(resolvedFile);
+        if (resolvedTitle) setAssignmentTitle(resolvedTitle);
+        if (resolvedSubmitter) setSubmitterName(resolvedSubmitter);
+      } else {
+        setError('ไม่พบข้อมูลไฟล์ต้นฉบับที่ต้องการเปิด กรุณากลับไปที่หน้าหลักแล้วลองใหม่อีกครั้ง');
+        setLoading(false);
+      }
+    };
+
+    resolveFile();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [initialFile, initialTitle, initialSubmitter]);
 
   // 2. Process authentic raw binary data and parse into A4 pages
@@ -407,7 +506,7 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
         }
 
         const lower = (file.name || '').toLowerCase();
-        const isDocx = lower.endsWith('.docx') || mimeType.includes('wordprocessingml') || file.previewType === 'doc';
+        const isDocx = lower.endsWith('.docx') || lower.endsWith('.doc') || mimeType.includes('word') || mimeType.includes('officedocument') || file.previewType === 'doc';
         const isSheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || mimeType.includes('spreadsheetml') || mimeType.includes('excel') || file.previewType === 'spreadsheet';
         const isPdf = lower.endsWith('.pdf') || mimeType === 'application/pdf' || file.previewType === 'pdf';
 
@@ -508,7 +607,7 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
 
   const lowerName = (file?.name || '').toLowerCase();
   const isPdf = lowerName.endsWith('.pdf') || file?.mimeType === 'application/pdf' || file?.previewType === 'pdf';
-  const isDocx = lowerName.endsWith('.docx') || file?.previewType === 'doc' || (file?.mimeType && file.mimeType.includes('word'));
+  const isDocx = lowerName.endsWith('.docx') || lowerName.endsWith('.doc') || file?.previewType === 'doc' || (file?.mimeType && file.mimeType.includes('word'));
   const isSheet = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls') || file?.previewType === 'spreadsheet' || (file?.mimeType && file.mimeType.includes('spreadsheet'));
   const isImage = lowerName.match(/\.(png|jpg|jpeg|gif|webp|svg)$/) || file?.previewType === 'image' || (file?.mimeType && file.mimeType.includes('image'));
 
@@ -742,12 +841,14 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                               if (el.type === 'paragraph') {
                                 const isCenter = el.align === 'center';
                                 const isRight = el.align === 'right';
+                                const isIndented = el.isIndented || false;
                                 const alignClass = isCenter ? 'text-center' : isRight ? 'text-right' : 'text-left';
+                                const indentClass = !isCenter && !isRight && isIndented ? 'indent-10' : '';
 
                                 return (
                                   <p 
                                     key={elIdx} 
-                                    className={`${alignClass} ${!isCenter && !isRight ? 'indent-10' : ''} leading-relaxed my-1.5`}
+                                    className={`${alignClass} ${indentClass} leading-relaxed my-1.5`}
                                     style={{ fontSize: '16pt' }}
                                   >
                                     {el.runs.map((run, rIdx) => {
@@ -1068,10 +1169,13 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                             <div className="flex-1 space-y-3.5 text-slate-900 leading-relaxed font-sarabun">
                               {page.elements.map((el, elIdx) => {
                                 if (el.type === 'paragraph') {
+                                  const isIndented = el.isIndented || false;
+                                  const alignClass = el.align === 'center' ? 'text-center' : el.align === 'right' ? 'text-right' : 'text-left';
+                                  const indentClass = alignClass === 'text-left' && isIndented ? 'indent-10' : '';
                                   return (
                                     <p 
                                       key={elIdx} 
-                                      className={`${el.align === 'center' ? 'text-center' : 'text-left indent-10'} leading-relaxed my-1.5`}
+                                      className={`${alignClass} ${indentClass} leading-relaxed my-1.5`}
                                       style={{ fontSize: '16pt' }}
                                     >
                                       {el.runs.map((r, rIdx) => (
@@ -1188,8 +1292,8 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
         )}
       </main>
 
-      {/* FLOATING SCROLL PAGE INDICATOR (เมื่อเลื่อนลงมา ก็จะมีหน้าให้เห็นว่า อยู่หน้าที่เท่าไร) */}
-      {!loading && !error && file && totalPages >= 1 && (
+      {/* FLOATING SCROLL PAGE INDICATOR (ลบเฉพาะสำหรับไฟล์ PDF เท่านั้น ไฟล์อื่นแสดงตามเดิม) */}
+      {!loading && !error && file && totalPages >= 1 && !isPdf && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 bg-slate-900/95 border border-purple-500/50 text-white rounded-full shadow-2xl backdrop-blur-md transition-all select-none">
           {totalPages > 1 && (
             <button
