@@ -292,56 +292,87 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   });
 
-  // Calculate 30-Day Lookahead Items (From today: 2026-08-31 up to 30 days ahead, sorted by closest date first)
-  interface LookaheadItem {
+  // Target members for assignment submission tracking (Approved members)
+  const targetMembers = approvedMembers.length > 0 ? approvedMembers : users.filter((u) => u.role === 'member');
+  const totalTargetCount = targetMembers.length > 0 ? targetMembers.length : 1;
+
+  // "กำหนดส่ง" List calculation (30-day lookahead + overdue pending submissions)
+  // - For Admin: Show assignments arriving in 30 days + overdue assignments where members haven't submitted completely. Disappears immediately once all members have submitted.
+  // - For Member: Show assignments arriving in 30 days + overdue assignments member hasn't submitted yet. Disappears immediately once submitted.
+  // - Strictly shows assignments only.
+  interface AssignmentDueItem {
     id: string;
-    type: 'assignment' | 'announcement';
     title: string;
-    date: string;
-    dateEnd?: string;
-    status: 'deadline' | 'general';
-    rawAssignment?: Assignment;
-    rawAnnouncement?: Announcement;
+    startDate: string;
+    dueDate: string;
+    isOverdue: boolean;
+    rawAssignment: Assignment;
+    submittedCount: number;
+    totalTargetCount: number;
   }
 
-  const lookaheadList: LookaheadItem[] = [];
+  const dueAssignmentsList: AssignmentDueItem[] = [];
 
-  // Assignments in 30-day window (must not be expired: dueDateEnd >= todayStr, and starts within 30 days)
   assignments.forEach((a) => {
-    const start = a.dueDateStart || a.dueDateEnd;
-    const end = a.dueDateEnd;
-    if (end && end >= todayStr && start && start <= lookahead30Str) {
-      lookaheadList.push({
-        id: `assign-${a.id}`,
-        type: 'assignment',
-        title: a.title,
-        date: start,
-        dateEnd: a.dueDateEnd,
-        status: 'deadline',
-        rawAssignment: a,
-      });
+    const start = a.dueDateStart || a.dueDateEnd || todayStr;
+    const end = a.dueDateEnd || start;
+    const isWithin30DaysOrPast = start <= lookahead30Str;
+    const isOverdue = end < todayStr;
+
+    // Submissions with actual files
+    const validSubs = submissions.filter(
+      (s) => s.assignmentId === a.id && s.files && s.files.length > 0
+    );
+    const submittedMemberIds = new Set(validSubs.map((s) => s.memberId));
+
+    if (isUserAdmin) {
+      // For Admin: Count how many approved members submitted
+      const submittedCount = targetMembers.filter((m) => submittedMemberIds.has(m.id)).length;
+      const isAllSubmitted = targetMembers.length > 0
+        ? submittedCount >= targetMembers.length
+        : validSubs.length > 0;
+
+      // If all members have submitted, it disappears automatically!
+      if (isAllSubmitted) return;
+
+      // Show if within 30 days or if overdue with pending members
+      if (isWithin30DaysOrPast) {
+        dueAssignmentsList.push({
+          id: `assign-${a.id}`,
+          title: a.title,
+          startDate: start,
+          dueDate: end,
+          isOverdue,
+          rawAssignment: a,
+          submittedCount,
+          totalTargetCount,
+        });
+      }
+    } else {
+      // For Member: Check if current user has submitted
+      const hasMemberSubmitted = validSubs.some((s) => s.memberId === currentUser?.id);
+
+      // If member has submitted, it disappears automatically!
+      if (hasMemberSubmitted) return;
+
+      // Show if within 30 days or overdue
+      if (isWithin30DaysOrPast) {
+        dueAssignmentsList.push({
+          id: `assign-${a.id}`,
+          title: a.title,
+          startDate: start,
+          dueDate: end,
+          isOverdue,
+          rawAssignment: a,
+          submittedCount: validSubs.length,
+          totalTargetCount,
+        });
+      }
     }
   });
 
-  // Announcements in 30-day window (must not be expired: end >= todayStr, and starts within 30 days)
-  announcements.forEach((ann) => {
-    const start = ann.dateStart || ann.date || todayStr;
-    const end = ann.dateEnd || ann.date || start;
-    if (end >= todayStr && start <= lookahead30Str) {
-      lookaheadList.push({
-        id: `ann-${ann.id}`,
-        type: 'announcement',
-        title: ann.title,
-        date: start,
-        dateEnd: ann.dateEnd,
-        status: ann.type === 'deadline' ? 'deadline' : 'general',
-        rawAnnouncement: ann,
-      });
-    }
-  });
-
-  // Sort by date ascending (closest date first at the top)
-  lookaheadList.sort((a, b) => a.date.localeCompare(b.date));
+  // Sort by deadline ascending (overdue & earliest due date first)
+  dueAssignmentsList.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
   const handleDateClick = (dayData: typeof calendarDays[0]) => {
     setModalDateData({
@@ -703,7 +734,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* RIGHT COLUMN (4 Cols): 30-DAY UPCOMING SCHEDULE & ANNOUNCEMENTS (ประกาศแจ้งเตือน 30 วันล่วงหน้า) */}
+        {/* RIGHT COLUMN (4 Cols): UPCOMING DEADLINES & OVERDUE (กำหนดส่ง) */}
         <div className="lg:col-span-4 bg-white rounded-3xl border border-purple-100 p-5 sm:p-6 shadow-xs flex flex-col space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center space-x-2">
@@ -711,74 +742,78 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <CalendarDays className="w-4 h-4" />
               </div>
               <h3 className="text-sm font-bold text-slate-900">
-                ประกาศ & กำหนดส่ง 30 วันล่วงหน้า
+                กำหนดส่ง
               </h3>
             </div>
-            <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
-              {lookaheadList.length} รายการ
+            <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-full border border-purple-200">
+              {dueAssignmentsList.length} งาน
             </span>
           </div>
 
           <p className="text-xs text-slate-500">
-            กำหนดส่งงานและแจ้งเพื่อทราบในระยะ 30 วันนี้ (แสดงเฉพาะปัจจุบันและ 30 วันล่วงหน้า)
+            {isUserAdmin
+              ? 'งานที่ต้องส่งในระยะ 30 วัน และงานที่สมาชิกยังส่งไม่ครบ (จะหายไปทันทีเมื่อส่งครบทุกคน)'
+              : 'งานที่ต้องส่งในระยะ 30 วัน และงานที่คุณยังค้างส่ง (จะหายไปทันทีเมื่อคุณส่งงานแล้ว)'}
           </p>
 
           {/* List of Uniformly Sized Cards */}
           <div className="space-y-3 flex-1 overflow-y-auto max-h-[540px] pr-1">
-            {lookaheadList.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-2xl">
-                ไม่มีกำหนดส่งงานหรือประกาศใหม่ในระยะ 30 วันนี้
+            {dueAssignmentsList.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500 bg-purple-50/50 border border-purple-100/80 rounded-2xl space-y-1.5">
+                <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto opacity-90" />
+                <p className="font-bold text-slate-800 text-sm">ไม่มีงานที่ต้องส่งในขณะนี้</p>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  {isUserAdmin
+                    ? 'สมาชิกส่งงานครบถ้วนเรียบร้อยแล้วทุกภารกิจ'
+                    : 'คุณส่งงานครบถ้วนเรียบร้อยแล้ว หรือยังไม่มีกำหนดส่งใหม่ในระยะ 30 วันนี้'}
+                </p>
               </div>
             ) : (
-              lookaheadList.map((item) => {
-                const shortDay = getThaiShortDay(item.date);
-                const isDeadline = item.status === 'deadline';
+              dueAssignmentsList.map((item) => {
+                const shortDay = getThaiShortDay(item.dueDate || item.startDate);
+                const dayNumber = item.dueDate ? item.dueDate.split('-')[2] : '';
 
                 return (
                   <div
                     key={item.id}
                     onClick={() => {
-                      if (item.type === 'assignment') {
-                        handleSelectTab(isUserAdmin ? 'tracking' : 'assignments');
-                      } else {
-                        handleSelectTab('assignments');
-                      }
+                      handleSelectTab(isUserAdmin ? 'tracking' : 'assignments');
                     }}
-                    className={`h-[94px] p-3 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 group hover:shadow-md ${
-                      isDeadline
+                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 group hover:shadow-md ${
+                      item.isOverdue
                         ? 'bg-rose-50/40 border-rose-200 hover:border-rose-400'
-                        : 'bg-amber-50/40 border-amber-200 hover:border-amber-400'
+                        : 'bg-purple-50/30 border-purple-100 hover:border-purple-300'
                     }`}
                   >
                     {/* Thai Day Abbreviation Badge (e.g. จ., อ., พ.) */}
                     <div
                       className={`w-11 h-11 rounded-2xl shrink-0 flex flex-col items-center justify-center font-black shadow-2xs ${
-                        isDeadline
+                        item.isOverdue
                           ? 'bg-rose-600 text-white shadow-rose-950/20'
-                          : 'bg-amber-500 text-slate-950 shadow-amber-950/20'
+                          : 'bg-purple-600 text-white shadow-purple-950/20'
                       }`}
                     >
                       <span className="text-sm leading-none">{shortDay || 'วัน'}</span>
                       <span className="text-[9px] opacity-80 mt-0.5 leading-none">
-                        {item.date ? item.date.split('-')[2] : ''}
+                        {dayNumber}
                       </span>
                     </div>
 
-                    {/* Content (Uniform format) */}
-                    <div className="min-w-0 flex-1 flex flex-col justify-between h-full py-0.5">
+                    {/* Content */}
+                    <div className="min-w-0 flex-1 flex flex-col justify-between h-full py-0.5 space-y-1">
                       <div className="flex items-center justify-between gap-1">
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                            isDeadline
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-amber-100 text-amber-900'
+                            item.isOverdue
+                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                              : 'bg-purple-100 text-purple-800 border border-purple-200'
                           }`}
                         >
-                          {isDeadline ? 'กำหนดส่งงาน' : 'แจ้งเพื่อทราบ'}
+                          {item.isOverdue ? '⚠️ เลยกำหนด (ค้างส่ง)' : '📌 กำหนดส่งงาน'}
                         </span>
 
-                        <span className="text-[10px] text-slate-400 font-medium">
-                          {formatThaiDate(item.date)}
+                        <span className={`text-[10px] font-medium ${item.isOverdue ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
+                          {formatThaiDate(item.dueDate)}
                         </span>
                       </div>
 
@@ -786,13 +821,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {item.title}
                       </h4>
 
-                      <div className="text-[10px] text-slate-500 truncate">
-                        {item.dateEnd && item.dateEnd !== item.date ? (
-                          <span>ช่วงเวลา: {formatThaiDateRange(item.date, item.dateEnd)}</span>
-                        ) : (
-                          <span>กำหนด: {getThaiShortDay(item.date)} {formatThaiDate(item.date)}</span>
-                        )}
-                      </div>
+                      {/* Status row */}
+                      {isUserAdmin ? (
+                        <div className="flex items-center justify-between text-[11px] pt-0.5">
+                          <span className={`font-semibold ${item.submittedCount === 0 ? 'text-rose-600' : 'text-purple-700'}`}>
+                            ส่งแล้ว {item.submittedCount}/{item.totalTargetCount} คน
+                            {item.totalTargetCount > item.submittedCount && (
+                              <span className="text-slate-400 font-normal ml-1">
+                                (ค้าง {item.totalTargetCount - item.submittedCount} คน)
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[10px] font-bold text-purple-700 group-hover:text-purple-900 flex items-center gap-0.5">
+                            ตรวจงาน <ChevronRight className="w-3 h-3" />
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between text-[11px] pt-0.5">
+                          <span className={`font-semibold ${item.isOverdue ? 'text-rose-600 font-bold' : 'text-amber-700'}`}>
+                            {item.isOverdue ? '🚨 เลยกำหนด (ยังไม่ส่ง)' : '⏳ รอส่งงาน'}
+                          </span>
+                          <span className="text-[10px] font-bold text-purple-700 bg-purple-50 group-hover:bg-purple-100 px-2 py-0.5 rounded-md border border-purple-200 flex items-center gap-1">
+                            ส่งงานทันที <ArrowRight className="w-3 h-3" />
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

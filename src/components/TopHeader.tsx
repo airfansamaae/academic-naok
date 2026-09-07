@@ -110,19 +110,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               </span>
             </button>
 
-            {/* Shared Google Drive Link */}
-            <a
-              id="header-shared-drive-link"
-              href={driveUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="เปิดโฟลเดอร์ Google Drive รวม (ทุกคนที่มีลิงก์เข้าถึงได้)"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300"
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-purple-600" />
-              <span className="hidden md:inline text-[11px]">Drive รวม</span>
-            </a>
-
             {/* Active User Pill */}
             {currentUser ? (
               <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
