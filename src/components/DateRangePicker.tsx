@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, Check, Sparkles } from 'lucide-react';
-import { THAI_MONTH_NAMES, formatThaiDate, formatThaiDateRange } from '../lib/dateUtils';
+import { THAI_MONTH_NAMES, formatThaiDate, formatThaiDateRange, getTodayDateString } from '../lib/dateUtils';
 
 interface DateRangePickerProps {
   startDate: string; // YYYY-MM-DD
@@ -17,10 +17,12 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   label = 'กำหนดวันส่งงาน / ช่วงเวลา',
   required = true,
 }) => {
-  // Parse initial state or fallback to 2026-08
-  const initialDate = startDate ? new Date(startDate) : new Date(2026, 7, 31);
-  const [viewYear, setViewYear] = useState<number>(initialDate.getFullYear() || 2026);
-  const [viewMonth, setViewMonth] = useState<number>(initialDate.getMonth() ?? 7); // 0-indexed (7 = Aug)
+  // Parse initial state or fallback to today
+  const now = new Date();
+  const todayStr = getTodayDateString();
+  const initialDate = startDate ? new Date(startDate) : now;
+  const [viewYear, setViewYear] = useState<number>(initialDate.getFullYear() || now.getFullYear());
+  const [viewMonth, setViewMonth] = useState<number>(!isNaN(initialDate.getTime()) ? initialDate.getMonth() : now.getMonth());
   const [isOpen, setIsOpen] = useState(false);
 
   // Click step state for two-click selection
@@ -29,13 +31,11 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   const [firstSelectedDate, setFirstSelectedDate] = useState<string | null>(null);
 
   const handleOpen = () => {
-    // Sync view with currently selected startDate
-    if (startDate) {
-      const d = new Date(startDate);
-      if (!isNaN(d.getTime())) {
-        setViewYear(d.getFullYear());
-        setViewMonth(d.getMonth());
-      }
+    // Sync view with currently selected startDate or today
+    const d = startDate ? new Date(startDate) : new Date();
+    if (!isNaN(d.getTime())) {
+      setViewYear(d.getFullYear());
+      setViewMonth(d.getMonth());
     }
     setClickStep(0);
     setFirstSelectedDate(null);
@@ -223,6 +223,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 const isSelectedStart = clickStep === 0 && startDate === dateStr;
                 const isSelectedEnd = clickStep === 0 && endDate === dateStr;
                 const isCurrentRange = clickStep === 0 && startDate && endDate && dateStr >= startDate && dateStr <= endDate;
+                const isToday = dateStr === todayStr;
 
                 return (
                   <button
@@ -236,10 +237,15 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                         ? 'bg-purple-600 text-white font-bold shadow-xs scale-105 z-10'
                         : isCurrentRange
                         ? 'bg-purple-100 text-purple-900 rounded-lg'
+                        : isToday
+                        ? 'border border-purple-400 font-bold text-purple-900 bg-purple-50/50 hover:bg-purple-100'
                         : 'hover:bg-purple-50 hover:text-purple-800 text-slate-700'
                     }`}
                   >
                     {dayNum}
+                    {isToday && !isSelectedStart && !isSelectedEnd && !isFirstSelection && (
+                      <span className="w-1 h-1 bg-purple-600 rounded-full absolute bottom-1" />
+                    )}
                   </button>
                 );
               })}

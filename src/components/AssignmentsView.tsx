@@ -34,7 +34,7 @@ import {
 import { storage } from '../services/storageService';
 import Swal from 'sweetalert2';
 import { DateRangePicker } from './DateRangePicker';
-import { formatThaiDate, formatThaiDateRange } from '../lib/dateUtils';
+import { formatThaiDate, formatThaiDateRange, getTodayDateString } from '../lib/dateUtils';
 import { saveFileToIndexedDb } from '../utils/indexedFileStore';
 import { parseDocxBinary } from '../utils/docxParser';
 import * as XLSX from 'xlsx';
@@ -104,18 +104,36 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
   const [memberStatusModalAssignment, setMemberStatusModalAssignment] = useState<Assignment | null>(null);
   const [peerSubmissionsModalAssignment, setPeerSubmissionsModalAssignment] = useState<Assignment | null>(null);
 
-  // Admin New Assignment Fields
+  // Admin New Assignment Fields (Strictly defaults to current date only)
+  const todayDateNow = getTodayDateString();
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
-  const [newDueDateStart, setNewDueDateStart] = useState('2026-08-31');
-  const [newDueDateEnd, setNewDueDateEnd] = useState('2026-09-07');
+  const [newDueDateStart, setNewDueDateStart] = useState(todayDateNow);
+  const [newDueDateEnd, setNewDueDateEnd] = useState(todayDateNow);
 
-  // Admin New Announcement Fields
+  // Admin New Announcement Fields (Strictly defaults to current date only)
   const [annTitle, setAnnTitle] = useState('');
   const [annContent, setAnnContent] = useState('');
-  const [annDateStart, setAnnDateStart] = useState('2026-08-31');
-  const [annDateEnd, setAnnDateEnd] = useState('2026-08-31');
+  const [annDateStart, setAnnDateStart] = useState(todayDateNow);
+  const [annDateEnd, setAnnDateEnd] = useState(todayDateNow);
   const [annIsUrgent, setAnnIsUrgent] = useState(false);
+
+  // Helper to open Admin Plus Modal with current date strictly guaranteed
+  const handleOpenPlusModal = (type?: 'assignment' | 'announcement') => {
+    const today = getTodayDateString();
+    const chosenType = type || (activeSubTab === 'announcements' ? 'announcement' : 'assignment');
+    setAdminFormType(chosenType);
+    setNewTitle('');
+    setNewDescription('');
+    setNewDueDateStart(today);
+    setNewDueDateEnd(today);
+    setAnnTitle('');
+    setAnnContent('');
+    setAnnDateStart(today);
+    setAnnDateEnd(today);
+    setAnnIsUrgent(false);
+    setIsAdminPlusModalOpen(true);
+  };
 
   // Member Submissions map
   const mySubmissionsMap = new Map<string, Submission>();
@@ -156,11 +174,12 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
 
   // 2. Handle Admin Assignment Editing
   const handleOpenEditAssignment = (assignment: Assignment) => {
+    const today = getTodayDateString();
     setEditingAssignment(assignment);
     setEditAssignTitle(assignment.title);
     setEditAssignDescription(assignment.description || '');
-    setEditAssignDueDateStart(assignment.dueDateStart || '2026-08-31');
-    setEditAssignDueDateEnd(assignment.dueDateEnd || '2026-09-07');
+    setEditAssignDueDateStart(assignment.dueDateStart || today);
+    setEditAssignDueDateEnd(assignment.dueDateEnd || today);
     setIsEditAssignmentModalOpen(true);
   };
 
@@ -254,11 +273,12 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
 
   // 5. Handle Admin Announcement Editing (Fix typos, update activity dates)
   const handleOpenEditAnnouncement = (ann: Announcement) => {
+    const today = getTodayDateString();
     setEditingAnnouncement(ann);
     setEditAnnTitle(ann.title);
     setEditAnnContent(ann.content || '');
-    setEditAnnDateStart(ann.dateStart || ann.date || '2026-08-31');
-    setEditAnnDateEnd(ann.dateEnd || ann.date || '2026-08-31');
+    setEditAnnDateStart(ann.dateStart || ann.date || today);
+    setEditAnnDateEnd(ann.dateEnd || ann.date || today);
     setEditAnnIsUrgent(!!ann.isUrgent);
     setIsEditAnnouncementModalOpen(true);
   };
@@ -592,8 +612,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
             <button
               id="admin-create-assignment-btn"
               onClick={() => {
-                setAdminFormType(activeSubTab === 'announcements' ? 'announcement' : 'assignment');
-                setIsAdminPlusModalOpen(true);
+                handleOpenPlusModal(activeSubTab === 'announcements' ? 'announcement' : 'assignment');
               }}
               title={activeSubTab === 'announcements' ? 'สร้างประกาศใหม่ (+)' : 'มอบหมายงานใหม่ (+)'}
               aria-label={activeSubTab === 'announcements' ? 'สร้างประกาศใหม่' : 'มอบหมายงานใหม่'}
@@ -853,8 +872,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
             {isAdmin && (
               <button
                 onClick={() => {
-                  setAdminFormType('announcement');
-                  setIsAdminPlusModalOpen(true);
+                  handleOpenPlusModal('announcement');
                 }}
                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl shadow-xs cursor-pointer"
               >

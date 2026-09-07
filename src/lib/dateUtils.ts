@@ -12,6 +12,15 @@ export const THAI_SHORT_DAYS = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', '�
 export const THAI_FULL_DAYS = ['วันอาทิตย์', 'วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์'];
 
 /**
+ * Returns current date in YYYY-MM-DD format e.g. 2026-09-07
+ */
+export function getTodayDateString(): string {
+  const d = new Date();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
  * Format YYYY-MM-DD or Date into DD/M/BBBB (Buddhist Era) e.g., 31/8/2569
  */
 export function formatThaiDate(dateInput: string | Date | undefined | null, includeLeadingZero = false): string {

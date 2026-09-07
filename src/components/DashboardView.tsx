@@ -109,8 +109,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const bannerNotices: BannerNotice[] = [];
 
-  // Filter announcements for Notice Banner: only show if not expired (end >= todayStr) and starts within 15 days (start <= lookahead15Str)
+  // 1. Assignments: Each assigned task is 1 notice banner (1 หัวข้อ = 1 ป้ายประกาศ)
+  // Shows within 15-day window, disappears immediately once overdue (end < todayStr)
+  assignments.forEach((a) => {
+    const start = a.dueDateStart || a.dueDateEnd || todayStr;
+    const end = a.dueDateEnd || a.dueDateStart || start;
+    if (end >= todayStr && start <= lookahead15Str) {
+      bannerNotices.push({
+        id: `assign-${a.id}`,
+        title: a.title, // 1 หัวข้อ = 1 ป้ายประกาศ ตรงตามหัวข้องาน
+        content: a.description || `กำหนดส่งงานวิชาการ ภายในวันที่ ${formatThaiDate(a.dueDateEnd)}`,
+        type: 'deadline',
+        date: start,
+        dateEnd: a.dueDateEnd,
+        authorName: a.createdByName || 'ฝ่ายบริหารงานวิชาการ',
+        assignmentId: a.id,
+      });
+    }
+  });
+
+  // Track existing assignment IDs to prevent duplicate notices from announcement items
+  const existingAssignIds = new Set(assignments.map((a) => a.id));
+
+  // 2. Standalone Announcements (ข่าวสาร / กิจกรรมทั่วไป)
+  // Only include if not tied to an existing assignment (prevent duplicate banners)
   announcements.forEach((ann) => {
+    if (ann.assignmentId && existingAssignIds.has(ann.assignmentId)) {
+      return; // Skip duplicate notice
+    }
     const start = ann.dateStart || ann.date || todayStr;
     const end = ann.dateEnd || ann.date || start;
     if (end >= todayStr && start <= lookahead15Str) {
@@ -121,31 +147,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         type: ann.type,
         date: start,
         dateEnd: ann.dateEnd,
-        authorName: ann.authorName,
+        authorName: ann.authorName || 'ฝ่ายวิชาการ',
       });
     }
   });
 
-  // Filter assignment deadlines for Notice Banner: only show if deadline has not passed (end >= todayStr) and starts within 15 days
-  assignments.forEach((a) => {
-    const start = a.dueDateStart || a.dueDateEnd;
-    const end = a.dueDateEnd;
-    if (end && end >= todayStr && start && start <= lookahead15Str) {
-      bannerNotices.push({
-        id: `assign-${a.id}`,
-        title: `กำหนดส่งงาน: ${a.title}`,
-        content: a.description || `กำหนดส่งงานวิชาการ ระหว่างวันที่ ${a.dueDateStart || a.dueDateEnd} ถึง ${a.dueDateEnd}`,
-        type: 'deadline',
-        date: start,
-        dateEnd: a.dueDateEnd,
-        authorName: 'ฝ่ายบริหารงานวิชาการ',
-        assignmentId: a.id,
-      });
-    }
+  // Sort banner notices by closest upcoming deadline first
+  bannerNotices.sort((a, b) => {
+    const dateA = a.dateEnd || a.date;
+    const dateB = b.dateEnd || b.date;
+    return dateA.localeCompare(dateB);
   });
-
-  // Sort banner notices by closest upcoming date first
-  bannerNotices.sort((a, b) => a.date.localeCompare(b.date));
 
   // Active notices for slider (never show expired notices)
   const activeAnnouncements: BannerNotice[] = bannerNotices.length > 0 ? bannerNotices : [
