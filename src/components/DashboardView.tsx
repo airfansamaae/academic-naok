@@ -68,9 +68,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [currentNoticeIndex, setCurrentNoticeIndex] = useState(0);
   const [isLegendOpen, setIsLegendOpen] = useState(false);
 
-  // Month and Year state for interactive calendar (defaults to Aug 2026)
-  const [calendarYear, setCalendarYear] = useState<number>(2026);
-  const [calendarMonth, setCalendarMonth] = useState<number>(7); // 0-indexed (7 = August)
+  // Dynamic calculation for Current Month, Current Date, Lookahead 15 & 30 Days
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const todayYear = now.getFullYear();
+  const todayMonth = now.getMonth() + 1;
+  const todayDay = now.getDate();
+
+  // Month and Year state for interactive calendar (strictly defaults to current month and year)
+  const [calendarYear, setCalendarYear] = useState<number>(now.getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState<number>(now.getMonth());
 
   // Selected date pop-up modal state
   const [modalDateData, setModalDateData] = useState<{
@@ -80,16 +88,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     announcements: Announcement[];
   } | null>(null);
 
-  // Dynamic Lookahead for Notice Banner (15 Days) & Upcoming Schedule (30 Days)
-  // Base date calculation (handles current calendar date)
-  const now = new Date();
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  const actualTodayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  // Use today's actual date, or academic reference date '2026-08-31'
-  const todayStr = '2026-08-31';
-  const [todayYear, todayMonth, todayDay] = todayStr.split('-').map(Number);
-  
-  // 15-Day Lookahead for Prominent Notice Banner (แสดงเฉพาะปัจจุบัน และ 15 วันล่วงหน้า หากเลยวันแล้วเอาออกอัตโนมัติ)
+  // 15-Day Lookahead for Prominent Notice Banner (แสดงเฉพาะปัจจุบัน และ 15 วันล่วงหน้า หากเลยวันแล้วเอาออกทันที)
   const lookahead15Date = new Date(todayYear, todayMonth - 1, todayDay + 15);
   const lookahead15Str = `${lookahead15Date.getFullYear()}-${pad(lookahead15Date.getMonth() + 1)}-${pad(lookahead15Date.getDate())}`;
 
@@ -515,7 +514,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             {/* Month Selector with < > buttons & Legend Button */}
-            <div className="flex items-center gap-2 self-start sm:self-auto">
+            <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
               <div className="flex items-center bg-slate-100/90 rounded-2xl p-1 border border-slate-200 shadow-2xs">
                 <button
                   id="calendar-prev-month-btn"
@@ -529,8 +528,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <span className="text-sm font-bold text-slate-900 block leading-tight">
                     {currentMonthYearLabel}
                   </span>
-                  <span className="text-[10px] font-medium text-slate-400">
-                    ({calendarYear})
+                  <span className="text-[10px] font-medium text-slate-500">
+                    {calendarMonth === now.getMonth() && calendarYear === now.getFullYear() ? (
+                      <span className="text-purple-700 font-bold">(เดือนปัจจุบัน)</span>
+                    ) : (
+                      `(${calendarYear})`
+                    )}
                   </span>
                 </div>
                 <button
@@ -542,6 +545,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <ChevronRight className="w-5 h-5" />
                 </button>
               </div>
+
+              {/* Return to Current Month Button if navigated away */}
+              {(calendarMonth !== now.getMonth() || calendarYear !== now.getFullYear()) && (
+                <button
+                  id="calendar-today-btn"
+                  onClick={() => {
+                    setCalendarYear(now.getFullYear());
+                    setCalendarMonth(now.getMonth());
+                  }}
+                  title="กลับสู่เดือนปัจจุบัน"
+                  className="px-3 py-2 rounded-2xl bg-purple-100 hover:bg-purple-200 text-purple-800 text-xs font-bold border border-purple-200 shadow-2xs transition-all"
+                >
+                  เดือนปัจจุบัน
+                </button>
+              )}
 
               <button
                 id="calendar-legend-btn"
@@ -643,7 +661,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   )}
 
                   {/* Day Number */}
-                  <div className="flex items-center justify-between z-10">
+                  <div className="flex items-center justify-between z-10 w-full">
                     <span
                       className={`text-xs sm:text-sm font-bold w-6 h-6 flex items-center justify-center rounded-full transition-colors ${
                         day.isToday
@@ -653,6 +671,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     >
                       {day.day}
                     </span>
+                    {day.isToday && (
+                      <span className="text-[9px] font-black text-purple-700 bg-purple-100 px-1 py-0.2 rounded border border-purple-200 shadow-3xs leading-tight">
+                        วันนี้
+                      </span>
+                    )}
                   </div>
 
                   {/* Title / Label text inside cell */}

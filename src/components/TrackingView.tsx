@@ -43,7 +43,14 @@ export const TrackingView: React.FC<TrackingViewProps> = ({
   const isAdmin = currentUser?.role === 'admin';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAssignmentFilter, setSelectedAssignmentFilter] = useState<string>('all');
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  // Default: Every topic is collapsed automatically every time the website is opened
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    assignments.forEach((a) => {
+      initial[a.id] = true;
+    });
+    return initial;
+  });
 
   // File edit modal state
   const [editingFile, setEditingFile] = useState<{
@@ -53,10 +60,13 @@ export const TrackingView: React.FC<TrackingViewProps> = ({
   } | null>(null);
 
   const toggleGroup = (assignmentId: string) => {
-    setCollapsedGroups((prev) => ({
-      ...prev,
-      [assignmentId]: !prev[assignmentId],
-    }));
+    setCollapsedGroups((prev) => {
+      const isCurrentlyCollapsed = prev[assignmentId] ?? true;
+      return {
+        ...prev,
+        [assignmentId]: !isCurrentlyCollapsed,
+      };
+    });
   };
 
   const expandAll = () => {
@@ -226,7 +236,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({
       {/* Grouped by Assignment Topic (Minimal List View) */}
       <div className="space-y-3.5">
         {displayedAssignments.map((assignment) => {
-          const isCollapsed = !!collapsedGroups[assignment.id];
+          const isCollapsed = collapsedGroups[assignment.id] ?? true;
           
           // Get all submissions for this assignment matching search
           const matchingSubmissions = submissions.filter((sub) => {
