@@ -1,4 +1,5 @@
-import { getAccessToken, googleSignIn } from './googleAuthService';
+import { getAccessToken, googleSignIn, isGoogleDriveConnected } from './googleAuthService';
+import Swal from 'sweetalert2';
 
 export const ROOT_DRIVE_FOLDER_ID = '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
 
@@ -10,7 +11,50 @@ export interface DriveUploadResult {
 }
 
 /**
- * Upload a file directly to Google Drive API v3
+ * Ensure Google Drive connection is active. If not, prompt with SweetAlert
+ * so the popup is triggered from a direct user interaction.
+ */
+export async function ensureGoogleDriveConnected(): Promise<string> {
+  const existingToken = await getAccessToken();
+  if (existingToken) return existingToken;
+
+  const result = await Swal.fire({
+    icon: 'info',
+    title: 'เชื่อมต่อ Google Drive ของโรงเรียน',
+    html: `
+      <div class="text-left text-sm text-slate-700 space-y-3">
+        <p class="font-medium text-slate-800">
+          ระบบจำเป็นต้องเชื่อมต่อ Google Drive เพื่อส่งไฟล์งานและเอกสารวิชาการเข้าสู่โฟลเดอร์ส่วนกลางของโรงเรียนโดยตรง
+        </p>
+        <div class="bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-900 font-mono flex items-center gap-2">
+          <span class="text-base">📁</span>
+          <span><b>Target Folder ID:</b> 1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-</span>
+        </div>
+        <p class="text-xs text-slate-500">
+          คลิกปุ่มด้านล่างเพื่อลงชื่อเข้าใช้ Google และอนุญาตการบันทึกไฟล์
+        </p>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'เชื่อมต่อ Google Drive ทันที',
+    cancelButtonText: 'ยกเลิก',
+    confirmButtonColor: '#7c3aed',
+    cancelButtonColor: '#94a3b8',
+  });
+
+  if (!result.isConfirmed) {
+    throw new Error('ผู้ใช้ยกเลิกการเชื่อมต่อ Google Drive');
+  }
+
+  const authRes = await googleSignIn();
+  if (!authRes?.accessToken) {
+    throw new Error('ไม่สามารถรับสิทธิ์การเข้าถึง Google Drive ได้');
+  }
+  return authRes.accessToken;
+}
+
+/**
+ * Upload a file directly to Google Drive API v3 (Target Folder ID: 1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-)
  */
 export async function uploadFileToGoogleDrive(
   file: File,
@@ -19,17 +63,14 @@ export async function uploadFileToGoogleDrive(
 ): Promise<DriveUploadResult> {
   let token = await getAccessToken();
 
-  // If not authenticated with Google yet, trigger Google Sign-in popup
+  // If not authenticated with Google yet, prompt with user interaction
   if (!token) {
     try {
-      const authRes = await googleSignIn();
-      if (authRes?.accessToken) {
-        token = authRes.accessToken;
-      }
+      token = await ensureGoogleDriveConnected();
     } catch (authErr: any) {
       console.warn('[googleDriveService] Google Sign-in not completed:', authErr);
       throw new Error(
-        'จำเป็นต้องเชื่อมต่อบัญชี Google เพื่อให้ไฟล์อัปโหลดเข้าสู่ Google Drive ของโรงเรียนโดยตรง'
+        authErr?.message || 'จำเป็นต้องเชื่อมต่อบัญชี Google เพื่อให้อัปโหลดเข้า Google Drive ของโรงเรียน'
       );
     }
   }
@@ -38,11 +79,54 @@ export async function uploadFileToGoogleDrive(
     throw new Error('ไม่พบสิทธิ์การเชื่อมต่อ Google Drive');
   }
 
-  if (onProgress) onProgress(10);
-
+  if (onProgress) onProgress(15);
   const folderToUse = targetFolderId || ROOT_DRIVE_FOLDER_ID;
 
-  // Method 1: Google Drive Resumable Upload (Highly robust for all file sizes)
+  // METHOD 1: Server-side Node.js Multipart Relay (100% CORS-proof and highly reliable)
+  try {
+    if (onProgress) onProgress(25);
+
+    const base64Data = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(file);
+    });
+
+    if (onProgress) onProgress(50);
+
+    const serverUploadRes = await fetch('/api/drive/upload', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        base64Data,
+        targetFolderId: folderToUse,
+      }),
+    });
+
+    if (serverUploadRes.ok) {
+      const data = await serverUploadRes.json();
+      if (data.success && data.fileId) {
+        if (onProgress) onProgress(100);
+        return {
+          fileId: data.fileId,
+          viewUrl: data.viewUrl || `https://drive.google.com/file/d/${data.fileId}/view`,
+          downloadUrl: data.downloadUrl || `https://drive.google.com/uc?export=download&id=${data.fileId}`,
+          folderId: data.folderId || folderToUse,
+        };
+      }
+    }
+    console.warn('[googleDriveService] Server upload relay returned non-OK, falling back to direct browser upload...');
+  } catch (serverErr) {
+    console.warn('[googleDriveService] Server upload relay error:', serverErr);
+  }
+
+  // METHOD 2: Direct Google Drive Resumable Upload via Browser
   try {
     const metadata = {
       name: file.name,
@@ -65,11 +149,9 @@ export async function uploadFileToGoogleDrive(
 
     if (!initRes.ok) {
       if (initRes.status === 401) {
-        // Token expired, retry auth once
-        const retryAuth = await googleSignIn();
-        if (retryAuth?.accessToken) {
-          return uploadFileToGoogleDrive(file, targetFolderId, onProgress);
-        }
+        // Token expired, re-auth
+        token = await ensureGoogleDriveConnected();
+        return uploadFileToGoogleDrive(file, targetFolderId, onProgress);
       }
       throw new Error(`เริ่มต้นการอัปโหลดไป Google Drive ไม่สำเร็จ (${initRes.status})`);
     }
@@ -79,9 +161,8 @@ export async function uploadFileToGoogleDrive(
       throw new Error('Google Drive ไม่ได้ส่ง URL สำหรับอัปโหลด');
     }
 
-    if (onProgress) onProgress(25);
+    if (onProgress) onProgress(60);
 
-    // Upload the file content via XMLHttpRequest to track accurate progress
     const uploadedDriveData = await new Promise<{ id: string; name: string }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('PUT', uploadUrl, true);
@@ -90,8 +171,8 @@ export async function uploadFileToGoogleDrive(
       if (onProgress) {
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 65) + 25;
-            onProgress(Math.min(pct, 90));
+            const pct = Math.round((e.loaded / e.total) * 35) + 60;
+            onProgress(Math.min(pct, 95));
           }
         };
       }
@@ -113,8 +194,7 @@ export async function uploadFileToGoogleDrive(
       xhr.send(file);
     });
 
-    if (onProgress) onProgress(92);
-
+    if (onProgress) onProgress(95);
     const driveFileId = uploadedDriveData.id;
 
     // Set permission to reader (so anyone in school or with link can view/download)
@@ -134,25 +214,8 @@ export async function uploadFileToGoogleDrive(
       console.warn('[googleDriveService] Set permission warning:', permErr);
     }
 
-    // Retrieve full links
     let viewUrl = `https://drive.google.com/file/d/${driveFileId}/view`;
     let downloadUrl = `https://drive.google.com/uc?export=download&id=${driveFileId}`;
-
-    try {
-      const metaRes = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${driveFileId}?fields=id,name,webViewLink,webContentLink`,
-        {
-          headers: { 'Authorization': `Bearer ${token}` },
-        }
-      );
-      if (metaRes.ok) {
-        const meta = await metaRes.json();
-        if (meta.webViewLink) viewUrl = meta.webViewLink;
-        if (meta.webContentLink) downloadUrl = meta.webContentLink;
-      }
-    } catch {
-      // Keep defaults
-    }
 
     if (onProgress) onProgress(100);
 
@@ -163,7 +226,7 @@ export async function uploadFileToGoogleDrive(
       folderId: folderToUse,
     };
   } catch (error: any) {
-    console.error('[googleDriveService] Upload failed:', error);
+    console.error('[googleDriveService] Direct upload failed:', error);
     throw error;
   }
 }

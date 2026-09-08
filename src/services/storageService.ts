@@ -1377,7 +1377,7 @@ export class StorageService {
           uploadedAt: new Date().toISOString(),
         };
 
-        // Persist authentic binary to IndexedDB
+        // Persist authentic binary to IndexedDB for instant preview/offline access
         await saveFileToIndexedDb(uploadedFileRecord.id, fullDataUrl, file, {
           name: file.name,
           size: file.size,
@@ -1387,8 +1387,12 @@ export class StorageService {
         return uploadedFileRecord;
       }
     } catch (driveErr: any) {
-      console.warn('[storageService] Direct Google Drive API upload error or deferred:', driveErr);
-      // Fall through to GAS or local store if user dismissed Google login or offline
+      console.warn('[storageService] Google Drive upload error:', driveErr);
+      if (driveErr?.message?.includes('ยกเลิก') || driveErr?.message?.includes('จำเป็นต้องเชื่อมต่อ')) {
+        throw driveErr;
+      }
+      // If error occurred during upload, provide clear message
+      throw new Error(`การอัปโหลดไป Google Drive ขัดข้อง: ${driveErr?.message || 'กรุณาลองใหม่อีกครั้ง'}`);
     }
 
     // 2. SECONDARY: Google Apps Script Web App Relay (if configured by school)

@@ -98,6 +98,103 @@ async function startServer() {
     res.redirect(TARGET_LUNCH_GAS_URL);
   });
 
+  // Google Drive File Upload Relay (Node.js robust multipart proxy to Google Drive API v3)
+  app.post('/api/drive/upload', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    const { fileName, mimeType, base64Data, targetFolderId } = req.body;
+    const folderId = targetFolderId || '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
+
+    if (!token) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'จำเป็นต้องระบุ OAuth Token สำหรับ Google Drive' 
+      });
+    }
+
+    if (!base64Data) {
+      return res.status(400).json({ success: false, message: 'Missing base64Data' });
+    }
+
+    try {
+      const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+      const fileBuffer = Buffer.from(cleanBase64, 'base64');
+      const fileType = mimeType || 'application/octet-stream';
+      const actualName = fileName || `Upload_${Date.now()}`;
+
+      const boundary = '-------314159265358979323846';
+      const delimiter = `\r\n--${boundary}\r\n`;
+      const closeDelimiter = `\r\n--${boundary}--`;
+
+      const metadata = JSON.stringify({
+        name: actualName,
+        parents: [folderId],
+      });
+
+      const multipartRequestBody = Buffer.concat([
+        Buffer.from(
+          `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${metadata}` +
+          `${delimiter}Content-Type: ${fileType}\r\n\r\n`
+        ),
+        fileBuffer,
+        Buffer.from(closeDelimiter),
+      ]);
+
+      const driveRes = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': `multipart/related; boundary=${boundary}`,
+            'Content-Length': multipartRequestBody.length.toString(),
+          },
+          body: multipartRequestBody,
+        }
+      );
+
+      if (!driveRes.ok) {
+        const errText = await driveRes.text();
+        console.error('[server.ts] Google Drive API upload error:', driveRes.status, errText);
+        return res.status(driveRes.status).json({ 
+          success: false, 
+          message: `Google Drive API error (${driveRes.status}): ${errText}` 
+        });
+      }
+
+      const driveData: any = await driveRes.json();
+      const fileId = driveData.id;
+
+      // Try setting permissions to reader
+      try {
+        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            role: 'reader',
+            type: 'anyone',
+          }),
+        });
+      } catch {}
+
+      res.json({
+        success: true,
+        fileId: fileId,
+        fileName: driveData.name || actualName,
+        mimeType: driveData.mimeType || fileType,
+        folderId: folderId,
+        viewUrl: `https://drive.google.com/file/d/${fileId}/view`,
+        downloadUrl: `https://drive.google.com/uc?export=download&id=${fileId}`,
+      });
+    } catch (err: any) {
+      console.error('[server.ts] Drive upload error:', err);
+      res.status(500).json({ success: false, message: err?.message || 'Server upload failure' });
+    }
+  });
+
   // Google Drive File Deletion Relay (Backend safe proxy)
   app.post('/api/drive/delete', async (req, res) => {
     const { fileId, fileIds } = req.body;

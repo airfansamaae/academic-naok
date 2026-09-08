@@ -25,6 +25,7 @@ import {
   User 
 } from '../types';
 import { storage, triggerDirectDownload } from '../services/storageService';
+import { ensureGoogleDriveConnected, ROOT_DRIVE_FOLDER_ID } from '../services/googleDriveService';
 import Swal from 'sweetalert2';
 import { formatThaiDate } from '../lib/dateUtils';
 
@@ -67,13 +68,32 @@ export const DocumentCenterView: React.FC<DocumentCenterViewProps> = ({
       return;
     }
 
+    try {
+      await ensureGoogleDriveConnected();
+    } catch (authErr: any) {
+      if (authErr?.message?.includes('ยกเลิก')) return;
+      Swal.fire('การเชื่อมต่อ Google Drive', authErr?.message || 'ไม่สามารถเชื่อมต่อ Google Drive ได้', 'error');
+      return;
+    }
+
     const school = storage.getSchoolProfile();
-    const targetFolder = school?.primaryDriveFolderId || '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
+    const targetFolder = school?.primaryDriveFolderId || ROOT_DRIVE_FOLDER_ID;
 
     setUploadProgress(0);
-    const uploaded = await storage.simulateFileUpload(selectedDocFile, (pct) => {
-      setUploadProgress(pct);
-    }, targetFolder);
+    let uploaded;
+    try {
+      uploaded = await storage.simulateFileUpload(selectedDocFile, (pct) => {
+        setUploadProgress(pct);
+      }, targetFolder);
+    } catch (uploadErr: any) {
+      setUploadProgress(null);
+      Swal.fire({
+        icon: 'error',
+        title: 'อัปโหลดลง Google Drive ไม่สำเร็จ',
+        text: uploadErr?.message || 'เกิดข้อผิดพลาดในการบันทึกไฟล์ลง Google Drive',
+      });
+      return;
+    }
 
     storage.createDocument({
       title: docTitle,

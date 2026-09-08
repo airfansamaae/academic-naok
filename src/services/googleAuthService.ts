@@ -11,6 +11,7 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 // OAuth Scopes strictly configured for this application
 export const SCOPES = [
+  'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/drive.file',
 ];
 

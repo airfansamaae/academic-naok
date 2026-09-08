@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Plus, 
   Eye, 
@@ -22,7 +22,9 @@ import {
   Bell,
   Megaphone,
   Save,
-  Pencil
+  Pencil,
+  FolderOpen,
+  ExternalLink
 } from 'lucide-react';
 import { 
   Assignment, 
@@ -32,6 +34,8 @@ import {
   Announcement
 } from '../types';
 import { storage } from '../services/storageService';
+import { ensureGoogleDriveConnected, ROOT_DRIVE_FOLDER_ID } from '../services/googleDriveService';
+import { isGoogleDriveConnected } from '../services/googleAuthService';
 import Swal from 'sweetalert2';
 import { DateRangePicker } from './DateRangePicker';
 import { formatThaiDate, formatThaiDateRange, getTodayDateString } from '../lib/dateUtils';
@@ -62,6 +66,15 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
 
   // View Sub-tab (Assignments vs Announcements)
   const [activeSubTab, setActiveSubTab] = useState<'assignments' | 'announcements'>('assignments');
+  const [driveConnected, setDriveConnected] = useState(isGoogleDriveConnected());
+
+  useEffect(() => {
+    setDriveConnected(isGoogleDriveConnected());
+    const interval = setInterval(() => {
+      setDriveConnected(isGoogleDriveConnected());
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Form Modals State
   const [isAdminPlusModalOpen, setIsAdminPlusModalOpen] = useState(false);
@@ -426,19 +439,38 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
       return;
     }
 
+    // Ensure Google Drive connection is active before uploading
+    try {
+      await ensureGoogleDriveConnected();
+    } catch (authErr: any) {
+      if (authErr?.message?.includes('ยกเลิก')) return;
+      Swal.fire('การเชื่อมต่อ Google Drive', authErr?.message || 'ไม่สามารถเชื่อมต่อ Google Drive ได้', 'error');
+      return;
+    }
+
     setUploadProgress(0);
 
     const currentAssign = assignments.find(a => a.id === selectedAssignmentForSubmit);
-    const targetFolder = currentAssign?.driveFolderId || '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
+    const targetFolder = currentAssign?.driveFolderId || ROOT_DRIVE_FOLDER_ID;
 
     const uploadedFileList: UploadedFile[] = [];
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
-      const uploaded = await storage.simulateFileUpload(file, (pct) => {
-        const overall = Math.floor(((i + pct / 100) / selectedFiles.length) * 100);
-        setUploadProgress(overall);
-      }, targetFolder);
-      uploadedFileList.push(uploaded);
+    try {
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const uploaded = await storage.simulateFileUpload(file, (pct) => {
+          const overall = Math.floor(((i + pct / 100) / selectedFiles.length) * 100);
+          setUploadProgress(overall);
+        }, targetFolder);
+        uploadedFileList.push(uploaded);
+      }
+    } catch (uploadErr: any) {
+      setUploadProgress(null);
+      Swal.fire({
+        icon: 'error',
+        title: 'อัปโหลดลง Google Drive ไม่สำเร็จ',
+        text: uploadErr?.message || 'เกิดข้อผิดพลาดในการบันทึกไฟล์ลง Google Drive',
+      });
+      return;
     }
 
     setUploadProgress(100);
@@ -529,16 +561,34 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
 
     if (editSubNewFiles.length > 0) {
       const currentAssign = assignments.find(a => a.id === editingSubmission.assignmentId);
-      const targetFolder = currentAssign?.driveFolderId || '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
+      const targetFolder = currentAssign?.driveFolderId || ROOT_DRIVE_FOLDER_ID;
+
+      try {
+        await ensureGoogleDriveConnected();
+      } catch (authErr: any) {
+        if (authErr?.message?.includes('ยกเลิก')) return;
+        Swal.fire('การเชื่อมต่อ Google Drive', authErr?.message || 'ไม่สามารถเชื่อมต่อ Google Drive ได้', 'error');
+        return;
+      }
 
       setEditUploadProgress(0);
-      for (let i = 0; i < editSubNewFiles.length; i++) {
-        const file = editSubNewFiles[i];
-        const uploaded = await storage.simulateFileUpload(file, (pct) => {
-          const overall = Math.floor(((i + pct / 100) / editSubNewFiles.length) * 100);
-          setEditUploadProgress(overall);
-        }, targetFolder);
-        finalFiles.push(uploaded);
+      try {
+        for (let i = 0; i < editSubNewFiles.length; i++) {
+          const file = editSubNewFiles[i];
+          const uploaded = await storage.simulateFileUpload(file, (pct) => {
+            const overall = Math.floor(((i + pct / 100) / editSubNewFiles.length) * 100);
+            setEditUploadProgress(overall);
+          }, targetFolder);
+          finalFiles.push(uploaded);
+        }
+      } catch (uploadErr: any) {
+        setEditUploadProgress(null);
+        Swal.fire({
+          icon: 'error',
+          title: 'อัปโหลดลง Google Drive ไม่สำเร็จ',
+          text: uploadErr?.message || 'เกิดข้อผิดพลาดในการบันทึกไฟล์ลง Google Drive',
+        });
+        return;
       }
       setEditUploadProgress(100);
     }
@@ -638,6 +688,74 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
             >
               <UploadCloud className="w-4 h-4" />
               <span>ส่งงานวิชาการ</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Google Drive Status Banner */}
+      <div className={`p-3 sm:p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+        driveConnected 
+          ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950' 
+          : 'bg-amber-50/80 border-amber-200 text-amber-950'
+      }`}>
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+            driveConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+          }`}>
+            <FolderOpen className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold">
+                {driveConnected ? 'Google Drive: เชื่อมต่อสำเร็จ พร้อมบันทึกไฟล์' : 'Google Drive: ยังไม่ได้เชื่อมต่อ'}
+              </span>
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-medium ${
+                driveConnected ? 'bg-emerald-200/70 text-emerald-800' : 'bg-amber-200/70 text-amber-800'
+              }`}>
+                โฟลเดอร์: {ROOT_DRIVE_FOLDER_ID}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 mt-0.5">
+              {driveConnected 
+                ? 'ไฟล์เอกสารทั้งหมดที่อัปโหลดจะถูกส่งและบันทึกลงใน Google Drive ของโรงเรียนโดยอัตโนมัติ' 
+                : 'กรุณาเชื่อมต่อบัญชี Google เพื่อให้ระบบสามารถบันทึกไฟล์ส่งงานลงใน Google Drive ปลายทางได้'}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+          <a
+            href={`https://drive.google.com/drive/folders/${ROOT_DRIVE_FOLDER_ID}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-1.5 text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-slate-200 shadow-2xs flex items-center gap-1.5 transition-colors"
+          >
+            <span>เปิด Google Drive</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+          {!driveConnected && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await ensureGoogleDriveConnected();
+                  setDriveConnected(true);
+                  Swal.fire({
+                    icon: 'success',
+                    title: 'เชื่อมต่อสำเร็จ',
+                    text: 'เชื่อมต่อกับ Google Drive เรียบร้อยแล้ว พร้อมสำหรับอัปโหลดไฟล์',
+                    timer: 2000,
+                  });
+                } catch (err: any) {
+                  if (!err?.message?.includes('ยกเลิก')) {
+                    Swal.fire('ข้อผิดพลาด', err?.message || 'เชื่อมต่อ Google Drive ไม่สำเร็จ', 'error');
+                  }
+                }
+              }}
+              className="px-3 py-1.5 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <span>เชื่อมต่อทันที</span>
             </button>
           )}
         </div>
