@@ -56,6 +56,7 @@ import {
   UploadedFile 
 } from './types';
 import { storage } from './services/storageService';
+import { initAuth } from './services/googleAuthService';
 import { GAS_CODE_SNIPPET, D1_SCHEMA_SQL } from './services/gasCodeGenerator';
 import { openAuthenticFileInNewTab } from './utils/fileViewer';
 import Swal from 'sweetalert2';
@@ -156,6 +157,9 @@ export default function App() {
 
   // Subscribe to storage changes & optional SSE events
   useEffect(() => {
+    // Initialize Google Auth state listener
+    const unsubGoogleAuth = initAuth();
+
     const unsubscribe = storage.subscribe(() => {
       refreshAllData();
     });
@@ -188,6 +192,7 @@ export default function App() {
     }
 
     return () => {
+      unsubGoogleAuth();
       unsubscribe();
       if (sseSource) {
         try {

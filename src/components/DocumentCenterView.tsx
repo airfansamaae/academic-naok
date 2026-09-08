@@ -67,10 +67,13 @@ export const DocumentCenterView: React.FC<DocumentCenterViewProps> = ({
       return;
     }
 
+    const school = storage.getSchoolProfile();
+    const targetFolder = school?.primaryDriveFolderId || '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
+
     setUploadProgress(0);
     const uploaded = await storage.simulateFileUpload(selectedDocFile, (pct) => {
       setUploadProgress(pct);
-    });
+    }, targetFolder);
 
     storage.createDocument({
       title: docTitle,

@@ -428,13 +428,16 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
 
     setUploadProgress(0);
 
+    const currentAssign = assignments.find(a => a.id === selectedAssignmentForSubmit);
+    const targetFolder = currentAssign?.driveFolderId || '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
+
     const uploadedFileList: UploadedFile[] = [];
     for (let i = 0; i < selectedFiles.length; i++) {
       const file = selectedFiles[i];
       const uploaded = await storage.simulateFileUpload(file, (pct) => {
         const overall = Math.floor(((i + pct / 100) / selectedFiles.length) * 100);
         setUploadProgress(overall);
-      });
+      }, targetFolder);
       uploadedFileList.push(uploaded);
     }
 
@@ -525,13 +528,16 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
     let finalFiles = [...editingSubmission.files];
 
     if (editSubNewFiles.length > 0) {
+      const currentAssign = assignments.find(a => a.id === editingSubmission.assignmentId);
+      const targetFolder = currentAssign?.driveFolderId || '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
+
       setEditUploadProgress(0);
       for (let i = 0; i < editSubNewFiles.length; i++) {
         const file = editSubNewFiles[i];
         const uploaded = await storage.simulateFileUpload(file, (pct) => {
           const overall = Math.floor(((i + pct / 100) / editSubNewFiles.length) * 100);
           setEditUploadProgress(overall);
-        });
+        }, targetFolder);
         finalFiles.push(uploaded);
       }
       setEditUploadProgress(100);

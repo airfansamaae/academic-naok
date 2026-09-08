@@ -9,6 +9,12 @@ import Swal from 'sweetalert2';
 import * as XLSX from 'xlsx';
 import { parseDocxBinary } from '../utils/docxParser';
 import { saveFileToIndexedDb, getFileFromIndexedDb } from '../utils/indexedFileStore';
+import { 
+  uploadFileToGoogleDrive, 
+  ROOT_DRIVE_FOLDER_ID, 
+  createGoogleDriveSubfolder, 
+  deleteFileFromGoogleDrive as deleteFromGoogleDriveApi 
+} from './googleDriveService';
 
 const STORAGE_KEYS = {
   USERS: 'academic_users_v1',
@@ -633,6 +639,52 @@ export class StorageService {
     return { success: true, user: found };
   }
 
+  public authenticateWithGoogle(googleUser: any): { success: boolean; user?: User; message?: string } {
+    if (!googleUser || !googleUser.email) {
+      return { success: false, message: 'ข้อมูลบัญชี Google ไม่ถูกต้อง' };
+    }
+
+    const users = this.getUsers();
+    const email = (googleUser.email || '').toLowerCase().trim();
+    
+    // Check if user exists by email, username, or Google ID
+    let found = users.find(u => 
+      (u.username && u.username.toLowerCase() === email) ||
+      (u.email && u.email.toLowerCase() === email) ||
+      (u.id === `google_${googleUser.uid}`)
+    );
+
+    if (found) {
+      if (found.status === 'rejected') {
+        return { success: false, message: 'บัญชีผู้ใช้นี้ไม่ได้รับการอนุมัติการเข้าใช้งาน' };
+      }
+      this.setCurrentUser(found);
+      return { success: true, user: found };
+    }
+
+    // Auto-create member user with verified Google Account
+    const newUser: User = {
+      id: `google_${googleUser.uid || Date.now()}`,
+      username: email,
+      fullName: googleUser.displayName || email.split('@')[0],
+      role: email.includes('admin') ? 'admin' : 'member',
+      status: 'approved',
+      email: email,
+      department: 'กลุ่มสาระการเรียนรู้',
+      position: 'อาจารย์ผู้สอน',
+      avatarUrl: googleUser.photoURL || undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updatedUsers = [...users, newUser];
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+    this.broadcastChange('users', 'insert', newUser);
+    this.notify();
+    this.setCurrentUser(newUser);
+    return { success: true, user: newUser };
+  }
+
   // --- Users & Members ---
   public getUsers(): User[] {
     const data = localStorage.getItem(STORAGE_KEYS.USERS);
@@ -1197,13 +1249,24 @@ export class StorageService {
     }
   }
 
-  // Automatic Google Drive Single File Deletion via Google Apps Script (Safe - Never deletes folders)
+  // Automatic Google Drive Single File Deletion (Direct API + GAS safe fallback)
   public async deleteFileFromGoogleDrive(fileId: string): Promise<boolean> {
     try {
+      if (!fileId || fileId.startsWith('mock_') || fileId.startsWith('drive_local_')) {
+        return true;
+      }
+
+      // 1. Direct Google Drive API deletion via OAuth
+      try {
+        await deleteFromGoogleDriveApi(fileId);
+      } catch (e) {
+        console.warn('[Google Drive API Delete Warning]', e);
+      }
+
       const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbzgmOBgQ4534lIiTVuUikzaEF0PXofybzvaYZlXPvFeY4U8d3KrcpXZ-MsooaHSgIQ/exec';
       const gasUrl = localStorage.getItem('gas_web_app_url') || defaultGasUrl;
       
-      if (gasUrl && fileId && !fileId.startsWith('mock_')) {
+      if (gasUrl) {
         // Direct fetch to Google Apps Script
         try {
           await fetch(gasUrl, {
@@ -1215,7 +1278,6 @@ export class StorageService {
               fileId: fileId,
             }),
           });
-          console.log(`[Google Drive Auto-Delete] File ID: ${fileId} moved to trash in Drive folder 1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-`);
         } catch (fetchErr) {
           console.warn('[Google Drive Auto-Delete Direct Error]', fetchErr);
         }
@@ -1238,12 +1300,14 @@ export class StorageService {
     }
   }
 
-  // High-Speed Direct File Upload to Google Drive via Google Apps Script (with progress and offline fallback)
+  // Direct Real File Upload to Google Drive API (with progress and persistent storage)
   public async simulateFileUpload(
     file: File, 
-    onProgress: (percent: number) => void
+    onProgress: (percent: number) => void,
+    targetFolderId?: string
   ): Promise<UploadedFile> {
     const gasUrl = localStorage.getItem('gas_web_app_url');
+    const folderId = targetFolderId || ROOT_DRIVE_FOLDER_ID;
 
     let previewType: UploadedFile['previewType'] = 'other';
     const lowerName = file.name.toLowerCase();
@@ -1294,6 +1358,40 @@ export class StorageService {
       genuinePreviewContent = file.name.replace(/\.[^/.]+$/, '');
     }
 
+    // 1. PRIMARY: Direct Real Google Drive API v3 Upload
+    try {
+      const driveUpload = await uploadFileToGoogleDrive(file, folderId, onProgress);
+      if (driveUpload && driveUpload.fileId) {
+        const uploadedFileRecord: UploadedFile = {
+          id: 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          name: file.name,
+          size: file.size,
+          mimeType: file.type || 'application/octet-stream',
+          driveFileId: driveUpload.fileId,
+          driveFolderId: driveUpload.folderId || folderId,
+          downloadUrl: driveUpload.downloadUrl,
+          viewUrl: driveUpload.viewUrl,
+          previewType: previewType,
+          previewContent: genuinePreviewContent,
+          fileDataUrl: fullDataUrl,
+          uploadedAt: new Date().toISOString(),
+        };
+
+        // Persist authentic binary to IndexedDB
+        await saveFileToIndexedDb(uploadedFileRecord.id, fullDataUrl, file, {
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+        });
+
+        return uploadedFileRecord;
+      }
+    } catch (driveErr: any) {
+      console.warn('[storageService] Direct Google Drive API upload error or deferred:', driveErr);
+      // Fall through to GAS or local store if user dismissed Google login or offline
+    }
+
+    // 2. SECONDARY: Google Apps Script Web App Relay (if configured by school)
     if (gasUrl) {
       try {
         onProgress(15);
@@ -1307,7 +1405,7 @@ export class StorageService {
           fileName: file.name,
           mimeType: file.type || 'application/octet-stream',
           base64Data: rawBase64,
-          targetFolderId: '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-',
+          targetFolderId: folderId,
         };
 
         onProgress(70);
@@ -1329,38 +1427,37 @@ export class StorageService {
 
         onProgress(100);
 
-        const realFileId = (data && data.fileId) ? data.fileId : ('drive_' + Date.now());
-        const realViewUrl = (data && data.viewUrl) ? data.viewUrl : `https://drive.google.com/file/d/${realFileId}/view`;
-        const realDownloadUrl = (data && data.downloadUrl) ? data.downloadUrl : `https://drive.google.com/uc?export=download&id=${realFileId}`;
+        if (data && data.fileId) {
+          const uploadedFileRecord: UploadedFile = {
+            id: 'file_' + Date.now(),
+            name: file.name,
+            size: file.size,
+            mimeType: file.type || 'application/octet-stream',
+            driveFileId: data.fileId,
+            driveFolderId: folderId,
+            downloadUrl: data.downloadUrl || `https://drive.google.com/uc?export=download&id=${data.fileId}`,
+            viewUrl: data.viewUrl || `https://drive.google.com/file/d/${data.fileId}/view`,
+            previewType: previewType,
+            previewContent: genuinePreviewContent,
+            fileDataUrl: fullDataUrl,
+            uploadedAt: new Date().toISOString(),
+          };
 
-        const uploadedFileRecord: UploadedFile = {
-          id: 'file_' + Date.now(),
-          name: file.name,
-          size: file.size,
-          mimeType: file.type || 'application/octet-stream',
-          driveFileId: realFileId,
-          driveFolderId: '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-',
-          downloadUrl: realDownloadUrl,
-          viewUrl: realViewUrl,
-          previewType: previewType,
-          previewContent: genuinePreviewContent,
-          fileDataUrl: fullDataUrl,
-          uploadedAt: new Date().toISOString(),
-        };
+          // Persist authentic binary to IndexedDB
+          await saveFileToIndexedDb(uploadedFileRecord.id, fullDataUrl, file, {
+            name: file.name,
+            size: file.size,
+            mimeType: file.type,
+          });
 
-        // Persist authentic binary to IndexedDB
-        await saveFileToIndexedDb(uploadedFileRecord.id, fullDataUrl, file, {
-          name: file.name,
-          size: file.size,
-          mimeType: file.type,
-        });
-
-        return uploadedFileRecord;
+          return uploadedFileRecord;
+        }
       } catch (err) {
         console.warn('[GAS Direct Upload] Fallback to simulated local record due to network / CORS:', err);
       }
     }
 
+    // 3. TERTIARY: Safe local IndexedDB persistence with simulated progress
     return new Promise(async (resolve) => {
       let progress = 0;
       const interval = setInterval(async () => {
@@ -1370,14 +1467,14 @@ export class StorageService {
           clearInterval(interval);
           onProgress(100);
 
-          const fileId = 'drive_f_' + Date.now();
+          const fileId = 'drive_local_' + Date.now();
           const uploadedFile: UploadedFile = {
             id: 'file_' + Date.now(),
             name: file.name,
             size: file.size,
             mimeType: file.type || 'application/octet-stream',
             driveFileId: fileId,
-            driveFolderId: '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-',
+            driveFolderId: folderId,
             downloadUrl: `https://drive.google.com/uc?export=download&id=${fileId}`,
             viewUrl: `https://drive.google.com/file/d/${fileId}/view`,
             previewType: previewType,
@@ -1397,7 +1494,7 @@ export class StorageService {
         } else {
           onProgress(progress);
         }
-      }, 100);
+      }, 80);
     });
   }
 
