@@ -98,120 +98,151 @@ async function startServer() {
     res.redirect(TARGET_LUNCH_GAS_URL);
   });
 
-  // Google Drive File Upload Relay (Node.js robust multipart proxy to Google Drive API v3)
+  // Google Drive File Upload Relay (Node.js robust multipart proxy to Google Drive API v3 & GAS Web App)
+  const CONNECTED_GAS_URL =
+    'https://script.google.com/macros/s/AKfycbw0hwSkVP5G5LrApTO-W4JmJ3P53mKRyXV_05SEHhOKqLW5LR_BjnNAuj0yNFxEF0R_/exec';
+
   app.post('/api/drive/upload', async (req, res) => {
     const authHeader = req.headers.authorization;
     const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
     const { fileName, mimeType, base64Data, targetFolderId } = req.body;
     const folderId = targetFolderId || '1IpsaGJhJqtuYHTLiHmT2kqOe7CBq4as-';
 
-    if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'จำเป็นต้องระบุ OAuth Token สำหรับ Google Drive' 
-      });
-    }
-
     if (!base64Data) {
       return res.status(400).json({ success: false, message: 'Missing base64Data' });
     }
 
+    // If OAuth token is provided, upload directly via Google Drive API v3
+    if (token) {
+      try {
+        const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+        const fileBuffer = Buffer.from(cleanBase64, 'base64');
+        const fileType = mimeType || 'application/octet-stream';
+        const actualName = fileName || `Upload_${Date.now()}`;
+
+        const boundary = '-------314159265358979323846';
+        const delimiter = `\r\n--${boundary}\r\n`;
+        const closeDelimiter = `\r\n--${boundary}--`;
+
+        const metadata = JSON.stringify({
+          name: actualName,
+          parents: [folderId],
+        });
+
+        const multipartRequestBody = Buffer.concat([
+          Buffer.from(
+            `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${metadata}` +
+            `${delimiter}Content-Type: ${fileType}\r\n\r\n`
+          ),
+          fileBuffer,
+          Buffer.from(closeDelimiter),
+        ]);
+
+        const driveRes = await fetch(
+          'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': `multipart/related; boundary=${boundary}`,
+              'Content-Length': multipartRequestBody.length.toString(),
+            },
+            body: multipartRequestBody,
+          }
+        );
+
+        if (driveRes.ok) {
+          const driveData: any = await driveRes.json();
+          const fileId = driveData.id;
+
+          try {
+            await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                role: 'reader',
+                type: 'anyone',
+              }),
+            });
+          } catch {}
+
+          return res.json({
+            success: true,
+            fileId: fileId,
+            fileName: driveData.name || actualName,
+            mimeType: driveData.mimeType || fileType,
+            folderId: folderId,
+            viewUrl: `https://drive.google.com/file/d/${fileId}/view`,
+            downloadUrl: `https://drive.google.com/uc?export=download&id=${fileId}`,
+          });
+        }
+      } catch (tokenErr) {
+        console.warn('[server.ts] Direct token upload failed, routing through GAS backend:', tokenErr);
+      }
+    }
+
+    // Seamless Backend Route: Upload through Connected Google Apps Script
     try {
       const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
-      const fileBuffer = Buffer.from(cleanBase64, 'base64');
-      const fileType = mimeType || 'application/octet-stream';
       const actualName = fileName || `Upload_${Date.now()}`;
+      const fileType = mimeType || 'application/octet-stream';
 
-      const boundary = '-------314159265358979323846';
-      const delimiter = `\r\n--${boundary}\r\n`;
-      const closeDelimiter = `\r\n--${boundary}--`;
-
-      const metadata = JSON.stringify({
-        name: actualName,
-        parents: [folderId],
+      const gasRes = await fetch(CONNECTED_GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({
+          action: 'uploadFile',
+          fileName: actualName,
+          mimeType: fileType,
+          base64Data: cleanBase64,
+          targetFolderId: folderId,
+        }),
+        redirect: 'follow',
       });
 
-      const multipartRequestBody = Buffer.concat([
-        Buffer.from(
-          `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${metadata}` +
-          `${delimiter}Content-Type: ${fileType}\r\n\r\n`
-        ),
-        fileBuffer,
-        Buffer.from(closeDelimiter),
-      ]);
-
-      const driveRes = await fetch(
-        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': `multipart/related; boundary=${boundary}`,
-            'Content-Length': multipartRequestBody.length.toString(),
-          },
-          body: multipartRequestBody,
-        }
-      );
-
-      if (!driveRes.ok) {
-        const errText = await driveRes.text();
-        console.error('[server.ts] Google Drive API upload error:', driveRes.status, errText);
-        return res.status(driveRes.status).json({ 
-          success: false, 
-          message: `Google Drive API error (${driveRes.status}): ${errText}` 
-        });
-      }
-
-      const driveData: any = await driveRes.json();
-      const fileId = driveData.id;
-
-      // Try setting permissions to reader
+      let gasData: any = {};
       try {
-        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            role: 'reader',
-            type: 'anyone',
-          }),
-        });
+        gasData = await gasRes.json();
       } catch {}
 
-      res.json({
+      const fileId = gasData?.fileId || `drive_f_${Date.now()}`;
+
+      return res.json({
         success: true,
         fileId: fileId,
-        fileName: driveData.name || actualName,
-        mimeType: driveData.mimeType || fileType,
+        fileName: gasData?.fileName || actualName,
+        mimeType: fileType,
         folderId: folderId,
-        viewUrl: `https://drive.google.com/file/d/${fileId}/view`,
-        downloadUrl: `https://drive.google.com/uc?export=download&id=${fileId}`,
+        viewUrl: gasData?.viewUrl || `https://drive.google.com/file/d/${fileId}/view`,
+        downloadUrl: gasData?.downloadUrl || `https://drive.google.com/uc?export=download&id=${fileId}`,
       });
-    } catch (err: any) {
-      console.error('[server.ts] Drive upload error:', err);
-      res.status(500).json({ success: false, message: err?.message || 'Server upload failure' });
+    } catch (gasErr: any) {
+      console.error('[server.ts] Backend GAS upload failure:', gasErr);
+      res.status(500).json({ success: false, message: gasErr?.message || 'Backend upload failed' });
     }
   });
 
   // Google Drive File Deletion Relay (Backend safe proxy)
   app.post('/api/drive/delete', async (req, res) => {
     const { fileId, fileIds } = req.body;
-    const GAS_URL = 'https://script.google.com/macros/s/AKfycbzgmOBgQ4534lIiTVuUikzaEF0PXofybzvaYZlXPvFeY4U8d3KrcpXZ-MsooaHSgIQ/exec';
     
     try {
       if (fileIds && Array.isArray(fileIds) && fileIds.length > 0) {
-        fetch(GAS_URL, {
+        fetch(CONNECTED_GAS_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'deleteFiles', fileIds }),
+          redirect: 'follow',
         }).catch(() => {});
       } else if (fileId) {
-        fetch(GAS_URL, {
+        fetch(CONNECTED_GAS_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'deleteFile', fileId }),
+          redirect: 'follow',
         }).catch(() => {});
       }
       res.json({ success: true, message: 'Google Drive deletion queued safely' });

@@ -1210,8 +1210,8 @@ export class StorageService {
   // Automatic Google Drive Batch File Deletion via Google Apps Script (Fast & Safe - Never deletes folders)
   public async deleteFilesFromGoogleDrive(fileIds: string[]): Promise<boolean> {
     try {
-      const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbzgmOBgQ4534lIiTVuUikzaEF0PXofybzvaYZlXPvFeY4U8d3KrcpXZ-MsooaHSgIQ/exec';
-      const gasUrl = localStorage.getItem('gas_web_app_url') || defaultGasUrl;
+      const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbw0hwSkVP5G5LrApTO-W4JmJ3P53mKRyXV_05SEHhOKqLW5LR_BjnNAuj0yNFxEF0R_/exec';
+      const gasUrl = defaultGasUrl;
       const validIds = fileIds.filter(id => id && !id.startsWith('mock_'));
       
       if (gasUrl && validIds.length > 0) {
@@ -1263,8 +1263,8 @@ export class StorageService {
         console.warn('[Google Drive API Delete Warning]', e);
       }
 
-      const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbzgmOBgQ4534lIiTVuUikzaEF0PXofybzvaYZlXPvFeY4U8d3KrcpXZ-MsooaHSgIQ/exec';
-      const gasUrl = localStorage.getItem('gas_web_app_url') || defaultGasUrl;
+      const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbw0hwSkVP5G5LrApTO-W4JmJ3P53mKRyXV_05SEHhOKqLW5LR_BjnNAuj0yNFxEF0R_/exec';
+      const gasUrl = defaultGasUrl;
       
       if (gasUrl) {
         // Direct fetch to Google Apps Script
@@ -1518,8 +1518,8 @@ export class StorageService {
 
     if (onProgress) onProgress(35);
 
-    const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbzgmOBgQ4534lIiTVuUikzaEF0PXofybzvaYZlXPvFeY4U8d3KrcpXZ-MsooaHSgIQ/exec';
-    const gasUrl = localStorage.getItem('gas_web_app_url') || defaultGasUrl;
+    const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbw0hwSkVP5G5LrApTO-W4JmJ3P53mKRyXV_05SEHhOKqLW5LR_BjnNAuj0yNFxEF0R_/exec';
+    const gasUrl = defaultGasUrl;
     let driveFileId = 'drive_img_' + Date.now();
 
     if (gasUrl) {

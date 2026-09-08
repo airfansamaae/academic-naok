@@ -13,7 +13,6 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Lock,
-  Sparkles,
   CloudUpload,
   Loader2
 } from 'lucide-react';
@@ -283,10 +282,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* 3 Prominent Menu Tabs */}
+        {/* Prominent Menu Tabs */}
         <div className="mt-5 pt-4 border-t border-slate-100">
           {isAdmin ? (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
               {/* 1. ข้อมูลโรงเรียน */}
               <button
                 type="button"
@@ -297,7 +296,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     : 'bg-slate-50/80 text-slate-700 hover:bg-purple-50/60 hover:border-purple-200 border-slate-200'
                 }`}
               >
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 ${
                   activeTab === 'school' ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-700'
                 }`}>
                   <School className="w-4 h-4" />
@@ -320,14 +319,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     : 'bg-slate-50/80 text-slate-700 hover:bg-purple-50/60 hover:border-purple-200 border-slate-200'
                 }`}
               >
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 ${
                   activeTab === 'members' ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-700'
                 }`}>
                   <Users className="w-4 h-4" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1 justify-between">
-                    <h4 className="text-xs font-bold truncate">2. สมาชิก</h4>
+                    <h4 className="text-xs font-bold truncate">2. จัดการสมาชิก</h4>
                     {pendingMembers.length > 0 && (
                       <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                         activeTab === 'members' ? 'bg-white text-purple-900' : 'bg-amber-500 text-white animate-pulse'
@@ -342,7 +341,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
               </button>
 
-              {/* 3. รหัสผ่าน */}
+              {/* 3. รหัสผ่านระบบ */}
               <button
                 type="button"
                 onClick={() => setActiveTab('password')}
@@ -352,15 +351,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     : 'bg-slate-50/80 text-slate-700 hover:bg-purple-50/60 hover:border-purple-200 border-slate-200'
                 }`}
               >
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 ${
                   activeTab === 'password' ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-700'
                 }`}>
                   <Key className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="text-xs font-bold truncate">3. รหัสผ่าน</h4>
+                  <h4 className="text-xs font-bold truncate">3. รหัสผ่านระบบ</h4>
                   <p className={`text-[10px] truncate ${activeTab === 'password' ? 'text-purple-100' : 'text-slate-500'}`}>
-                    เปลี่ยนรหัส Admin
+                    เปลี่ยนรหัสผ่าน Admin
                   </p>
                 </div>
               </button>
