@@ -12,8 +12,6 @@ import {
   Building2
 } from 'lucide-react';
 import { storage } from '../services/storageService';
-import { googleSignIn } from '../services/googleAuthService';
-import { GoogleSignInButton } from './GoogleSignInButton';
 import Swal from 'sweetalert2';
 
 interface AuthModalProps {
@@ -40,46 +38,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [regFullName, setRegFullName] = useState('');
   const [regId, setRegId] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   if (!isOpen) return null;
-
-  const handleGoogleLogin = async () => {
-    try {
-      setIsGoogleLoading(true);
-      const res = await googleSignIn();
-      if (res && res.user) {
-        const authRes = storage.authenticateWithGoogle(res.user);
-        if (authRes.success && authRes.user) {
-          onLoginSuccess();
-          if (onClose) onClose();
-          Swal.fire({
-            icon: 'success',
-            title: 'เข้าสู่ระบบสำเร็จ',
-            html: `ยินดีต้อนรับ <b>${authRes.user.fullName}</b><br/><span class="text-xs text-emerald-600 font-semibold">✓ เชื่อมต่อ Google Drive สำหรับอัปโหลดไฟล์เรียบร้อย</span>`,
-            timer: 1800,
-            showConfirmButton: false,
-          });
-        } else {
-          Swal.fire({
-            icon: 'error',
-            title: 'เข้าสู่ระบบไม่สำเร็จ',
-            text: authRes.message || 'ไม่สามารถยืนยันตัวตนได้',
-          });
-        }
-      }
-    } catch (err: any) {
-      if (err?.code !== 'auth/popup-closed-by-user') {
-        Swal.fire({
-          icon: 'error',
-          title: 'Google Sign-in ไม่สำเร็จ',
-          text: err?.message || 'ไม่สามารถเปิดหน้าต่างลงชื่อเข้าใช้ Google ได้',
-        });
-      }
-    } finally {
-      setIsGoogleLoading(false);
-    }
-  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -310,22 +270,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <span>เข้าสู่ระบบ (Sign In)</span>
               </button>
             </div>
-
-            <div className="relative my-2.5 text-center">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200"></div>
-              </div>
-              <span className="relative bg-white px-2 text-[10px] font-medium text-slate-400">
-                หรือเข้าสู่ระบบและเชื่อมต่อ Google Drive ทันที
-              </span>
-            </div>
-
-            <GoogleSignInButton
-              onClick={handleGoogleLogin}
-              isLoading={isGoogleLoading}
-              label="เข้าสู่ระบบด้วยบัญชี Google"
-              className="w-full"
-            />
           </form>
         ) : (
           /* 2. REGISTER FORM: STRICTLY ONLY ชื่อ-สกุล, ID, Password */

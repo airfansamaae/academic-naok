@@ -68,14 +68,6 @@ export const DocumentCenterView: React.FC<DocumentCenterViewProps> = ({
       return;
     }
 
-    try {
-      await ensureGoogleDriveConnected();
-    } catch (authErr: any) {
-      if (authErr?.message?.includes('ยกเลิก')) return;
-      Swal.fire('การเชื่อมต่อ Google Drive', authErr?.message || 'ไม่สามารถเชื่อมต่อ Google Drive ได้', 'error');
-      return;
-    }
-
     const school = storage.getSchoolProfile();
     const targetFolder = school?.primaryDriveFolderId || ROOT_DRIVE_FOLDER_ID;
 

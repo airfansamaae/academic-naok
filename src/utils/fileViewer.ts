@@ -632,14 +632,54 @@ export function buildStandardizedA4ViewerHtml(
       const fileName = ${JSON.stringify(fileName)};
       const downloadUrl = ${JSON.stringify(file.downloadUrl || '')};
       const viewUrl = ${JSON.stringify(file.viewUrl || '')};
+      const driveFileId = ${JSON.stringify(file.driveFileId || '')};
 
-      if (dataUrl) {
+      if (dataUrl && dataUrl.startsWith('data:')) {
+        try {
+          const parts = dataUrl.split(';base64,');
+          if (parts.length === 2) {
+            const rawBase64 = parts[1];
+            const byteCharacters = atob(rawBase64);
+            const byteNumbers = new Uint8Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const blob = new Blob([byteNumbers]);
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function() {
+              if (a.parentNode) a.parentNode.removeChild(a);
+              URL.revokeObjectURL(blobUrl);
+            }, 60000);
+            return;
+          }
+        } catch (e) {
+          console.warn('Blob URL generation failed, falling back:', e);
+        }
+
         const a = document.createElement('a');
         a.href = dataUrl;
         a.download = fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+        return;
+      }
+
+      if (driveFileId && !driveFileId.startsWith('drive_f_') && !driveFileId.startsWith('mock_')) {
+        const proxyDownload = '/api/drive/download/' + encodeURIComponent(driveFileId) + '?name=' + encodeURIComponent(fileName);
+        const a = document.createElement('a');
+        a.href = proxyDownload;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function() {
+          if (a.parentNode) a.parentNode.removeChild(a);
+        }, 1000);
         return;
       }
 

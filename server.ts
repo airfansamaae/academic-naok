@@ -251,6 +251,35 @@ async function startServer() {
     }
   });
 
+  // Google Drive File Download Proxy (Guarantees original filename and cross-domain downloads)
+  app.get('/api/drive/download/:fileId', async (req, res) => {
+    const { fileId } = req.params;
+    const requestedName = (req.query.name as string) || 'document';
+    const cleanFileName = path.basename(requestedName).replace(/["\r\n]/g, '');
+
+    try {
+      const driveUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}&confirm=t`;
+      const driveResponse = await fetch(driveUrl, { redirect: 'follow' });
+
+      if (!driveResponse.ok) {
+        return res.status(driveResponse.status).send('Unable to download from Google Drive');
+      }
+
+      const contentType = driveResponse.headers.get('content-type') || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(cleanFileName)}"; filename*=UTF-8''${encodeURIComponent(cleanFileName)}`
+      );
+
+      const arrayBuffer = await driveResponse.arrayBuffer();
+      res.send(Buffer.from(arrayBuffer));
+    } catch (err: any) {
+      console.error('[server.ts] Download proxy error:', err);
+      res.status(500).send('Download proxy failed: ' + (err?.message || 'Error'));
+    }
+  });
+
   // Broadcast helper
   const broadcastSync = (eventType: string, payload: any) => {
     serverDataVersion = Date.now();

@@ -439,19 +439,11 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
       return;
     }
 
-    // Ensure Google Drive connection is active before uploading
-    try {
-      await ensureGoogleDriveConnected();
-    } catch (authErr: any) {
-      if (authErr?.message?.includes('ยกเลิก')) return;
-      Swal.fire('การเชื่อมต่อ Google Drive', authErr?.message || 'ไม่สามารถเชื่อมต่อ Google Drive ได้', 'error');
-      return;
-    }
-
-    setUploadProgress(0);
-
+    // Target folder on Google Drive
     const currentAssign = assignments.find(a => a.id === selectedAssignmentForSubmit);
     const targetFolder = currentAssign?.driveFolderId || ROOT_DRIVE_FOLDER_ID;
+
+    setUploadProgress(0);
 
     const uploadedFileList: UploadedFile[] = [];
     try {
@@ -562,14 +554,6 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
     if (editSubNewFiles.length > 0) {
       const currentAssign = assignments.find(a => a.id === editingSubmission.assignmentId);
       const targetFolder = currentAssign?.driveFolderId || ROOT_DRIVE_FOLDER_ID;
-
-      try {
-        await ensureGoogleDriveConnected();
-      } catch (authErr: any) {
-        if (authErr?.message?.includes('ยกเลิก')) return;
-        Swal.fire('การเชื่อมต่อ Google Drive', authErr?.message || 'ไม่สามารถเชื่อมต่อ Google Drive ได้', 'error');
-        return;
-      }
 
       setEditUploadProgress(0);
       try {
@@ -734,30 +718,10 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
             <span>เปิด Google Drive</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
-          {!driveConnected && (
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  await ensureGoogleDriveConnected();
-                  setDriveConnected(true);
-                  Swal.fire({
-                    icon: 'success',
-                    title: 'เชื่อมต่อสำเร็จ',
-                    text: 'เชื่อมต่อกับ Google Drive เรียบร้อยแล้ว พร้อมสำหรับอัปโหลดไฟล์',
-                    timer: 2000,
-                  });
-                } catch (err: any) {
-                  if (!err?.message?.includes('ยกเลิก')) {
-                    Swal.fire('ข้อผิดพลาด', err?.message || 'เชื่อมต่อ Google Drive ไม่สำเร็จ', 'error');
-                  }
-                }
-              }}
-              className="px-3 py-1.5 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
-            >
-              <span>เชื่อมต่อทันที</span>
-            </button>
-          )}
+          <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl flex items-center gap-1.5 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Google Drive เชื่อมต่อแล้ว</span>
+          </span>
         </div>
       </div>
 
