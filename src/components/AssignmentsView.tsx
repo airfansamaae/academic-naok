@@ -22,9 +22,7 @@ import {
   Bell,
   Megaphone,
   Save,
-  Pencil,
-  FolderOpen,
-  ExternalLink
+  Pencil
 } from 'lucide-react';
 import { 
   Assignment, 
@@ -35,7 +33,6 @@ import {
 } from '../types';
 import { storage } from '../services/storageService';
 import { ensureGoogleDriveConnected, ROOT_DRIVE_FOLDER_ID } from '../services/googleDriveService';
-import { isGoogleDriveConnected } from '../services/googleAuthService';
 import Swal from 'sweetalert2';
 import { DateRangePicker } from './DateRangePicker';
 import { formatThaiDate, formatThaiDateRange, getTodayDateString } from '../lib/dateUtils';
@@ -66,15 +63,6 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
 
   // View Sub-tab (Assignments vs Announcements)
   const [activeSubTab, setActiveSubTab] = useState<'assignments' | 'announcements'>('assignments');
-  const [driveConnected, setDriveConnected] = useState(isGoogleDriveConnected());
-
-  useEffect(() => {
-    setDriveConnected(isGoogleDriveConnected());
-    const interval = setInterval(() => {
-      setDriveConnected(isGoogleDriveConnected());
-    }, 2000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Form Modals State
   const [isAdminPlusModalOpen, setIsAdminPlusModalOpen] = useState(false);
@@ -674,54 +662,6 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
               <span>ส่งงานวิชาการ</span>
             </button>
           )}
-        </div>
-      </div>
-
-      {/* Google Drive Status Banner */}
-      <div className={`p-3 sm:p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-        driveConnected 
-          ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950' 
-          : 'bg-amber-50/80 border-amber-200 text-amber-950'
-      }`}>
-        <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-            driveConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-          }`}>
-            <FolderOpen className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold">
-                {driveConnected ? 'Google Drive: เชื่อมต่อสำเร็จ พร้อมบันทึกไฟล์' : 'Google Drive: ยังไม่ได้เชื่อมต่อ'}
-              </span>
-              <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-medium ${
-                driveConnected ? 'bg-emerald-200/70 text-emerald-800' : 'bg-amber-200/70 text-amber-800'
-              }`}>
-                โฟลเดอร์: {ROOT_DRIVE_FOLDER_ID}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-600 mt-0.5">
-              {driveConnected 
-                ? 'ไฟล์เอกสารทั้งหมดที่อัปโหลดจะถูกส่งและบันทึกลงใน Google Drive ของโรงเรียนโดยอัตโนมัติ' 
-                : 'กรุณาเชื่อมต่อบัญชี Google เพื่อให้ระบบสามารถบันทึกไฟล์ส่งงานลงใน Google Drive ปลายทางได้'}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-          <a
-            href={`https://drive.google.com/drive/folders/${ROOT_DRIVE_FOLDER_ID}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-1.5 text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-slate-200 shadow-2xs flex items-center gap-1.5 transition-colors"
-          >
-            <span>เปิด Google Drive</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-          <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl flex items-center gap-1.5 shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Google Drive เชื่อมต่อแล้ว</span>
-          </span>
         </div>
       </div>
 
