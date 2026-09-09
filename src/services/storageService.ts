@@ -28,40 +28,48 @@ const STORAGE_KEYS = {
   LOCAL_VERSION: 'academic_data_version_v1',
 };
 
+// Helper to sanitize uploaded files for storage & network synchronization
+// Keeps authentic file identity, drive IDs, download URLs, and metadata while preventing QuotaExceededError and HTTP 413 Payload Too Large
+export function sanitizeFileForStorage(file: any): any {
+  if (!file || typeof file !== 'object') return file;
+  const { fileDataUrl, ...rest } = file;
+  return rest;
+}
+
+export function sanitizeForStorageAndSync(data: any): any {
+  if (!data) return data;
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeForStorageAndSync(item));
+  }
+  if (typeof data === 'object') {
+    const copy: any = { ...data };
+    if (Array.isArray(copy.files)) {
+      copy.files = copy.files.map(sanitizeFileForStorage);
+    }
+    if (copy.file) {
+      copy.file = sanitizeFileForStorage(copy.file);
+    }
+    if (copy.fileDataUrl) {
+      delete copy.fileDataUrl;
+    }
+    return copy;
+  }
+  return data;
+}
+
 // Safe localStorage setter to prevent QuotaExceededError when files are uploaded
-function safeSetLocalStorage(key: string, data: any): void {
+export function safeSetLocalStorage(key: string, data: any): void {
   try {
-    localStorage.setItem(key, JSON.stringify(data));
+    const sanitized = sanitizeForStorageAndSync(data);
+    localStorage.setItem(key, JSON.stringify(sanitized));
   } catch (err: any) {
     if (err?.name === 'QuotaExceededError' || err?.code === 22) {
       console.warn(`[storageService] QuotaExceededError for ${key}. Preserving files in IndexedDB.`);
-      if (Array.isArray(data)) {
-        const lightweight = data.map((item: any) => {
-          if (item?.files && Array.isArray(item.files)) {
-            return {
-              ...item,
-              files: item.files.map((f: any) => ({
-                ...f,
-                fileDataUrl: undefined,
-              }))
-            };
-          }
-          if (item?.file && item.file?.fileDataUrl) {
-            return {
-              ...item,
-              file: {
-                ...item.file,
-                fileDataUrl: undefined,
-              }
-            };
-          }
-          return item;
-        });
-        try {
-          localStorage.setItem(key, JSON.stringify(lightweight));
-        } catch (innerErr) {
-          console.warn('[storageService] Safe save error:', innerErr);
-        }
+      try {
+        const sanitized = sanitizeForStorageAndSync(data);
+        localStorage.setItem(key, JSON.stringify(sanitized));
+      } catch (innerErr) {
+        console.warn('[storageService] Safe save error:', innerErr);
       }
     } else {
       console.error(`[storageService] Error saving ${key}:`, err);
@@ -488,23 +496,42 @@ export class StorageService {
             localStorage.setItem(STORAGE_KEYS.ASSIGNMENTS, JSON.stringify(remoteData.assignments));
             changed = true;
           }
-          if (Array.isArray(remoteData.submissions) && remoteData.submissions.length > 0) {
-            localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(remoteData.submissions));
+          if (Array.isArray(remoteData.submissions)) {
+            const localSubs = this.getSubmissions();
+            // Smart merge: keep local submissions that are not yet on the server or recently updated
+            const mergedMap = new Map<string, Submission>();
+            remoteData.submissions.forEach((s: Submission) => mergedMap.set(s.id, s));
+            localSubs.forEach((s: Submission) => {
+              if (!mergedMap.has(s.id)) {
+                mergedMap.set(s.id, s);
+              }
+            });
+            const mergedSubs = Array.from(mergedMap.values());
+            safeSetLocalStorage(STORAGE_KEYS.SUBMISSIONS, mergedSubs);
             changed = true;
           }
-          if (Array.isArray(remoteData.documents) && remoteData.documents.length > 0) {
-            localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(remoteData.documents));
+          if (Array.isArray(remoteData.documents)) {
+            const localDocs = this.getDocuments();
+            const mergedDocMap = new Map<string, DocumentItem>();
+            remoteData.documents.forEach((d: DocumentItem) => mergedDocMap.set(d.id, d));
+            localDocs.forEach((d: DocumentItem) => {
+              if (!mergedDocMap.has(d.id)) {
+                mergedDocMap.set(d.id, d);
+              }
+            });
+            const mergedDocs = Array.from(mergedDocMap.values());
+            safeSetLocalStorage(STORAGE_KEYS.DOCUMENTS, mergedDocs);
             changed = true;
           }
           if (Array.isArray(remoteData.announcements)) {
             const sanitized = remoteData.announcements.filter(
               (a: any) => a.id !== 'ann_03' && !a.title?.includes('SAR ประจำปี')
             );
-            localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(sanitized));
+            safeSetLocalStorage(STORAGE_KEYS.ANNOUNCEMENTS, sanitized);
             changed = true;
           }
           if (json.school && json.school.name) {
-            localStorage.setItem(STORAGE_KEYS.SCHOOL, JSON.stringify(json.school));
+            safeSetLocalStorage(STORAGE_KEYS.SCHOOL, json.school);
             changed = true;
           }
 
@@ -542,6 +569,9 @@ export class StorageService {
     }
 
     // 2. Push to Server / Cloudflare Functions / D1
+    // Sanitize large base64 payload to prevent HTTP 413 and proxy body overflow
+    const cleanPayload = sanitizeForStorageAndSync(data);
+
     try {
       const response = await fetch('/api/sync', {
         method: 'POST',
@@ -549,8 +579,8 @@ export class StorageService {
         body: JSON.stringify({
           table,
           action,
-          data,
-          school: table === 'school' ? data : undefined,
+          data: cleanPayload,
+          school: table === 'school' ? cleanPayload : undefined,
         }),
       });
 
@@ -982,7 +1012,20 @@ export class StorageService {
 
     const existingIndex = submissions.findIndex(s => s.assignmentId === data.assignmentId && s.memberId === currentUser?.id);
     if (existingIndex >= 0) {
-      submissions[existingIndex] = { ...submissions[existingIndex], ...newSub, id: submissions[existingIndex].id };
+      const existing = submissions[existingIndex];
+      const mergedFiles = [...(existing.files || [])];
+      for (const newF of data.files) {
+        if (!mergedFiles.some(f => f.id === newF.id || (f.name === newF.name && f.size === newF.size))) {
+          mergedFiles.push(newF);
+        }
+      }
+      submissions[existingIndex] = {
+        ...existing,
+        ...newSub,
+        id: existing.id,
+        files: mergedFiles,
+        updatedAt: new Date().toISOString(),
+      };
       this.broadcastChange('submissions', 'update', submissions[existingIndex]);
     } else {
       submissions.unshift(newSub);

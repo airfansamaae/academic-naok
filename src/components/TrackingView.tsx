@@ -375,8 +375,8 @@ export const TrackingView: React.FC<TrackingViewProps> = ({
                                   <Download className="w-4 h-4" />
                                 </button>
 
-                                {/* Admin Extra: Edit file & Delete file */}
-                                {isAdmin && (
+                                {/* File Actions: Edit name & Delete file (For Admin or File Owner) */}
+                                {(isAdmin || sub.memberId === currentUser?.id) && (
                                   <>
                                     <button
                                       onClick={() => {
@@ -387,7 +387,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({
                                         });
                                       }}
                                       title="แก้ไขชื่อ/ข้อมูลไฟล์"
-                                      className="p-1.5 text-amber-600 hover:bg-amber-100 rounded-lg transition-colors"
+                                      className="p-1.5 text-amber-600 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer"
                                     >
                                       <Edit3 className="w-3.5 h-3.5" />
                                     </button>
@@ -395,7 +395,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({
                                     <button
                                       onClick={() => handleDeleteFile(sub.id, file.id, file.name)}
                                       title="ลบไฟล์เดี่ยวนี้ออกจากระบบและ Google Drive"
-                                      className="p-1.5 text-rose-500 hover:bg-rose-100 rounded-lg transition-colors"
+                                      className="p-1.5 text-rose-500 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>

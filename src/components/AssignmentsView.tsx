@@ -17,12 +17,17 @@ import {
   Sparkles, 
   Info,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   ShieldCheck,
   Check,
   Bell,
   Megaphone,
   Save,
-  Pencil
+  Pencil,
+  Download,
+  Paperclip,
+  Folder
 } from 'lucide-react';
 import { 
   Assignment, 
@@ -31,7 +36,7 @@ import {
   UploadedFile,
   Announcement
 } from '../types';
-import { storage } from '../services/storageService';
+import { storage, triggerDirectDownload } from '../services/storageService';
 import { ensureGoogleDriveConnected, ROOT_DRIVE_FOLDER_ID } from '../services/googleDriveService';
 import Swal from 'sweetalert2';
 import { DateRangePicker } from './DateRangePicker';
@@ -118,6 +123,12 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
   const [annDateStart, setAnnDateStart] = useState(todayDateNow);
   const [annDateEnd, setAnnDateEnd] = useState(todayDateNow);
   const [annIsUrgent, setAnnIsUrgent] = useState(false);
+
+  // Expandable assignment files view state
+  const [expandedAssignments, setExpandedAssignments] = useState<Record<string, boolean>>({});
+  const toggleAssignmentExpanded = (id: string) => {
+    setExpandedAssignments(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   // Helper to open Admin Plus Modal with current date strictly guaranteed
   const handleOpenPlusModal = (type?: 'assignment' | 'announcement') => {
@@ -498,6 +509,60 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
     setIsEditSubmissionModalOpen(true);
   };
 
+  // 1-Click Download of Raw File with Original Name
+  const handleDownloadFile = (file: UploadedFile) => {
+    Swal.fire({
+      icon: 'success',
+      title: 'กำลังดาวน์โหลดไฟล์ต้นฉบับ',
+      text: `ดาวน์โหลด ${file.name} เรียบร้อยแล้ว (ไฟล์ดิบ ชื่อไฟล์เดิม)`,
+      toast: true,
+      position: 'top-end',
+      timer: 1800,
+      showConfirmButton: false,
+    });
+    triggerDirectDownload(file);
+  };
+
+  // Direct File Delete Handler (with confirmation)
+  const handleDeleteFileDirect = (submissionId: string, fileId: string, fileName: string) => {
+    Swal.fire({
+      title: 'ยืนยันการลบไฟล์?',
+      html: `คุณต้องการลบไฟล์ <b>"${fileName}"</b> ออกจากระบบและ Google Drive ใช่หรือไม่?<br/><small class="text-slate-400">*ลบเฉพาะไฟล์เดี่ยว ไม่กระทบต่อโฟลเดอร์หลัก</small>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#E11D48',
+      cancelButtonColor: '#94A3B8',
+      confirmButtonText: 'ใช่, ลบไฟล์นี้',
+      cancelButtonText: 'ยกเลิก',
+    }).then((result) => {
+      if (result.isConfirmed) {
+        try {
+          storage.deleteFileFromSubmission(submissionId, fileId, currentUser?.id || '', isAdmin);
+          Swal.fire({
+            icon: 'success',
+            title: 'ลบไฟล์สำเร็จ',
+            text: `ลบไฟล์ "${fileName}" ออกจากระบบและ Google Drive เรียบร้อยแล้ว`,
+            timer: 1500,
+            showConfirmButton: false,
+          });
+        } catch (err: any) {
+          Swal.fire('ข้อผิดพลาด', err.message || 'ไม่สามารถลบไฟล์ได้', 'error');
+        }
+      }
+    });
+  };
+
+  // Helper to render appropriate file icon
+  const getFileIcon = (file: UploadedFile) => {
+    if (file.previewType === 'pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      return <FileText className="w-4 h-4 text-rose-500 shrink-0" />;
+    }
+    if (file.previewType === 'spreadsheet' || file.name.toLowerCase().match(/\.(xlsx|xls|csv)$/)) {
+      return <FileSpreadsheet className="w-4 h-4 text-emerald-500 shrink-0" />;
+    }
+    return <FileText className="w-4 h-4 text-purple-500 shrink-0" />;
+  };
+
   // Handle Delete Single File from Member Submission
   const handleDeleteSubmissionFile = (fileId: string) => {
     if (!editingSubmission) return;
@@ -746,136 +811,310 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                   return (
                     <div
                       key={assignment.id}
-                      className={`p-4 sm:p-5 rounded-xl border bg-white flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:shadow-xs ${
+                      className={`p-4 sm:p-5 rounded-xl border bg-white flex flex-col gap-3 transition-all hover:shadow-xs ${
                         isCompleted 
                           ? 'border-emerald-200 border-l-4 border-l-emerald-500' 
                           : 'border-purple-200 border-l-4 border-l-purple-600'
                       }`}
                     >
-                      {/* Left Info */}
-                      <div className="space-y-1.5 min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span
-                            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-md ${
-                              isCompleted
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-purple-100 text-purple-800'
-                            }`}
-                          >
-                            {isAdmin
-                              ? isCompleted
-                                ? 'ส่งครบแล้ว (100%)'
-                                : `ส่งแล้ว ${assignmentSubs.length}/${totalApprovedMembersCount} คน`
-                              : isCompleted
-                              ? 'ส่งงานเรียบร้อย (ส่งแล้ว)'
-                              : 'ยังไม่ได้ส่ง (กำหนดส่ง)'}
-                          </span>
+                      {/* Card Top: Details & Actions */}
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        {/* Left Info */}
+                        <div className="space-y-1.5 min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className={`text-[11px] font-bold px-2.5 py-0.5 rounded-md ${
+                                isCompleted
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-purple-100 text-purple-800'
+                              }`}
+                            >
+                              {isAdmin
+                                ? isCompleted
+                                  ? 'ส่งครบแล้ว (100%)'
+                                  : `ส่งแล้ว ${assignmentSubs.length}/${totalApprovedMembersCount} คน`
+                                : isCompleted
+                                ? 'ส่งงานเรียบร้อย (ส่งแล้ว)'
+                                : 'ยังไม่ได้ส่ง (กำหนดส่ง)'}
+                            </span>
 
-                          <span className="text-xs text-slate-500 flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                            <span>กำหนด: {formatThaiDateRange(assignment.dueDateStart, assignment.dueDateEnd)}</span>
-                          </span>
+                            <span className="text-xs text-slate-500 flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                              <span>กำหนด: {formatThaiDateRange(assignment.dueDateStart, assignment.dueDateEnd)}</span>
+                            </span>
+                          </div>
+
+                          <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
+                            {assignment.title}
+                          </h3>
+                          {assignment.description && (
+                            <p className="text-xs text-slate-500 line-clamp-2">
+                              {assignment.description}
+                            </p>
+                          )}
                         </div>
 
-                        <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
-                          {assignment.title}
-                        </h3>
-                        {assignment.description && (
-                          <p className="text-xs text-slate-500 line-clamp-2">
-                            {assignment.description}
-                          </p>
-                        )}
-                      </div>
+                        {/* Right Actions */}
+                        <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 flex-wrap">
+                          {isAdmin ? (
+                            /* ADMIN CONTROLS: View Submissions + Edit Assignment + Delete Assignment */
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button
+                                onClick={() => setMemberStatusModalAssignment(assignment)}
+                                title="ดูสถานะการส่งและตรวจงานของสมาชิก"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition-all cursor-pointer shadow-2xs"
+                              >
+                                <Users className="w-3.5 h-3.5" />
+                                <span>สถานะการส่ง ({assignmentSubs.length}/{totalApprovedMembersCount})</span>
+                              </button>
 
-                      {/* Right Actions */}
-                      <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 flex-wrap">
-                        {isAdmin ? (
-                          /* ADMIN CONTROLS: View Submissions + Edit Assignment + Delete Assignment */
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <button
-                              onClick={() => setMemberStatusModalAssignment(assignment)}
-                              title="ดูสถานะการส่งและตรวจงานของสมาชิก"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition-all cursor-pointer shadow-2xs"
-                            >
-                              <Users className="w-3.5 h-3.5" />
-                              <span>สถานะการส่ง ({assignmentSubs.length}/{totalApprovedMembersCount})</span>
-                            </button>
+                              <button
+                                onClick={() => handleOpenEditAssignment(assignment)}
+                                title="แก้ไขรายละเอียดงานและกำหนดส่ง"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl border border-slate-200 transition-all cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-slate-600" />
+                                <span>แก้ไข</span>
+                              </button>
 
-                            <button
-                              onClick={() => handleOpenEditAssignment(assignment)}
-                              title="แก้ไขรายละเอียดงานและกำหนดส่ง"
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl border border-slate-200 transition-all cursor-pointer"
-                            >
-                              <Edit3 className="w-3.5 h-3.5 text-slate-600" />
-                              <span>แก้ไข</span>
-                            </button>
-
-                            <button
-                              onClick={() => handleDeleteAssignment(assignment)}
-                              title="ลบงานที่มอบหมายและไฟล์ที่เกี่ยวข้องทั้งหมด"
-                              className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          /* MEMBER CONTROLS: View / Edit / Delete own submission */
-                          <>
-                            {isMemberSubmitted ? (
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <button
-                                  onClick={() => setPeerSubmissionsModalAssignment(assignment)}
-                                  title="ดูสถานะการส่งและไฟล์งาน"
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl border border-emerald-200 transition-colors cursor-pointer shadow-2xs"
-                                >
-                                  <Users className="w-3.5 h-3.5" />
-                                  <span>สถานะการส่ง (ส่งแล้ว)</span>
-                                </button>
-
-                                <button
-                                  onClick={() => handleOpenEditSubmission(mySubmission)}
-                                  title="แก้ไขงานที่ส่ง / เปลี่ยนไฟล์ / เพิ่มไฟล์"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition-colors cursor-pointer"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                  <span>แก้ไขงาน</span>
-                                </button>
-
-                                <button
-                                  onClick={() => handleDeleteMySubmission(mySubmission.id)}
-                                  title="ลบงานของตนเอง"
-                                  className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors cursor-pointer"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2">
-                                {assignmentSubs.length > 0 && (
+                              <button
+                                onClick={() => handleDeleteAssignment(assignment)}
+                                title="ลบงานที่มอบหมายและไฟล์ที่เกี่ยวข้องทั้งหมด"
+                                className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            /* MEMBER CONTROLS: View / Edit / Delete own submission */
+                            <>
+                              {isMemberSubmitted ? (
+                                <div className="flex items-center gap-1.5 flex-wrap">
                                   <button
                                     onClick={() => setPeerSubmissionsModalAssignment(assignment)}
-                                    title="ดูสถานะการส่งของสมาชิกคนอื่นๆ"
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-purple-50 hover:text-purple-700 rounded-xl transition-colors cursor-pointer"
+                                    title="ดูสถานะการส่งและไฟล์งาน"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl border border-emerald-200 transition-colors cursor-pointer shadow-2xs"
                                   >
                                     <Users className="w-3.5 h-3.5" />
-                                    <span>สถานะการส่ง ({assignmentSubs.length})</span>
+                                    <span>สถานะการส่ง (ส่งแล้ว)</span>
                                   </button>
-                                )}
-                                <button
-                                  onClick={() => {
-                                    setSelectedAssignmentForSubmit(assignment.id);
-                                    setIsMemberSubmitModalOpen(true);
-                                  }}
-                                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-xs glow-purple-hover cursor-pointer"
-                                >
-                                  <UploadCloud className="w-3.5 h-3.5" />
-                                  <span>คลิกเพื่อส่งงาน</span>
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        )}
+
+                                  <button
+                                    onClick={() => handleOpenEditSubmission(mySubmission)}
+                                    title="แก้ไขงานที่ส่ง / เปลี่ยนไฟล์ / เพิ่มไฟล์"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition-colors cursor-pointer"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                    <span>แก้ไขงาน</span>
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleDeleteMySubmission(mySubmission.id)}
+                                    title="ลบงานของตนเอง"
+                                    className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  {assignmentSubs.length > 0 && (
+                                    <button
+                                      onClick={() => setPeerSubmissionsModalAssignment(assignment)}
+                                      title="ดูสถานะการส่งของสมาชิกคนอื่นๆ"
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-purple-50 hover:text-purple-700 rounded-xl transition-colors cursor-pointer"
+                                    >
+                                      <Users className="w-3.5 h-3.5" />
+                                      <span>สถานะการส่ง ({assignmentSubs.length})</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => {
+                                      setSelectedAssignmentForSubmit(assignment.id);
+                                      setIsMemberSubmitModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-xs glow-purple-hover cursor-pointer"
+                                  >
+                                    <UploadCloud className="w-3.5 h-3.5" />
+                                    <span>คลิกเพื่อส่งงาน</span>
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
+
+                      {/* Member: Display Submitted Files Directly On The Card */}
+                      {mySubmission && mySubmission.files && mySubmission.files.length > 0 && (
+                        <div className="pt-3 border-t border-slate-100 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              <Paperclip className="w-3.5 h-3.5 text-purple-600" />
+                              <span>ไฟล์ที่ส่งแล้ว ({mySubmission.files.length} ไฟล์)</span>
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              ส่งเมื่อ {formatThaiDate(mySubmission.submissionDate)}
+                            </span>
+                          </div>
+
+                          {mySubmission.note && (
+                            <p className="text-xs text-slate-600 bg-purple-50/50 px-2.5 py-1.5 rounded-lg border border-purple-100 italic">
+                              หมายเหตุ: {mySubmission.note}
+                            </p>
+                          )}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {mySubmission.files.map((file) => (
+                              <div
+                                key={file.id}
+                                className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200/80 bg-slate-50/70 hover:bg-purple-50/40 transition-colors text-xs"
+                              >
+                                <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
+                                  {getFileIcon(file)}
+                                  <div className="truncate">
+                                    <span className="font-semibold text-slate-800 truncate block">
+                                      {file.name}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400">
+                                      {(file.size / (1024 * 1024)).toFixed(2)} MB
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenFilePreview(file, assignment.title, mySubmission.memberName)}
+                                    className="p-1.5 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors cursor-pointer"
+                                    title={`เปิดดูไฟล์: ${file.name}`}
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadFile(file)}
+                                    className="p-1.5 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
+                                    title={`ดาวน์โหลดไฟล์ดิบชื่อไฟล์เดิม: ${file.name}`}
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteFileDirect(mySubmission.id, file.id, file.name)}
+                                    className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                    title={`ลบไฟล์นี้: ${file.name}`}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Admin: Expandable List of All Teacher Submissions & Files */}
+                      {isAdmin && assignmentSubs.length > 0 && (
+                        <div className="pt-3 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => toggleAssignmentExpanded(assignment.id)}
+                            className="text-xs font-semibold text-purple-700 hover:text-purple-900 flex items-center gap-1.5 cursor-pointer py-1 px-2 rounded-lg hover:bg-purple-50 transition-colors"
+                          >
+                            <Folder className="w-3.5 h-3.5 text-purple-600" />
+                            <span>
+                              {expandedAssignments[assignment.id]
+                                ? 'ซ่อนรายการไฟล์ที่ส่ง'
+                                : `ดูรายการไฟล์ที่ครูส่งแล้ว (${assignmentSubs.reduce((acc, s) => acc + (s.files?.length || 0), 0)} ไฟล์ จาก ${assignmentSubs.length} ท่าน)`}
+                            </span>
+                            {expandedAssignments[assignment.id] ? (
+                              <ChevronUp className="w-3.5 h-3.5 ml-1" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5 ml-1" />
+                            )}
+                          </button>
+
+                          {expandedAssignments[assignment.id] && (
+                            <div className="mt-2.5 space-y-2.5 pl-1">
+                              {assignmentSubs.map((sub) => (
+                                <div key={sub.id} className="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-700 font-bold text-[10px] flex items-center justify-center overflow-hidden">
+                                        {sub.memberAvatar ? (
+                                          <img src={sub.memberAvatar} alt={sub.memberName} className="w-full h-full object-cover" />
+                                        ) : (
+                                          sub.memberName.charAt(0)
+                                        )}
+                                      </div>
+                                      <span className="font-bold text-slate-800">{sub.memberName}</span>
+                                      <span className="text-[11px] text-slate-500">({sub.department})</span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400">ส่งเมื่อ {formatThaiDate(sub.submissionDate)}</span>
+                                  </div>
+
+                                  {sub.note && (
+                                    <p className="text-[11px] text-slate-500 italic bg-white px-2 py-1 rounded border border-slate-100">
+                                      หมายเหตุ: {sub.note}
+                                    </p>
+                                  )}
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                    {sub.files.map((file) => (
+                                      <div
+                                        key={file.id}
+                                        className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200 text-xs"
+                                      >
+                                        <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
+                                          {getFileIcon(file)}
+                                          <span className="font-medium text-slate-800 truncate block">
+                                            {file.name}
+                                          </span>
+                                          <span className="text-[10px] text-slate-400 shrink-0">
+                                            ({(file.size / (1024 * 1024)).toFixed(2)} MB)
+                                          </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() => onOpenFilePreview(file, assignment.title, sub.memberName)}
+                                            className="p-1 text-purple-700 hover:bg-purple-100 rounded-md cursor-pointer"
+                                            title={`ดูไฟล์: ${file.name}`}
+                                          >
+                                            <Eye className="w-3.5 h-3.5" />
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDownloadFile(file)}
+                                            className="p-1 text-emerald-700 hover:bg-emerald-100 rounded-md cursor-pointer"
+                                            title={`ดาวน์โหลด: ${file.name}`}
+                                          >
+                                            <Download className="w-3.5 h-3.5" />
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteFileDirect(sub.id, file.id, file.name)}
+                                            className="p-1 text-rose-600 hover:bg-rose-50 rounded-md cursor-pointer"
+                                            title={`ลบไฟล์: ${file.name}`}
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -1758,18 +1997,34 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                             <span>ส่งแล้ว ({sub.submissionDate})</span>
                           </span>
                           {sub.files && sub.files.length > 0 && (
-                            <div className="flex items-center gap-1 flex-wrap">
+                            <div className="flex items-center gap-1.5 flex-wrap justify-end">
                               {sub.files.map((f, fIdx) => (
-                                <div key={f.id || fIdx} className="inline-flex items-center gap-1">
+                                <div key={f.id || fIdx} className="inline-flex items-center gap-1 p-1 bg-white border border-slate-200 rounded-lg text-xs">
                                   <button
                                     onClick={() => {
                                       onOpenFilePreview(f, memberStatusModalAssignment.title, member.fullName);
                                     }}
-                                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 cursor-pointer"
-                                    title={`เปิดดูไฟล์ต้นฉบับในหน้าต่างใหม่: ${f.name}`}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 font-semibold text-purple-700 hover:bg-purple-50 rounded cursor-pointer"
+                                    title={`เปิดดูไฟล์ต้นฉบับ: ${f.name}`}
                                   >
                                     <Eye className="w-3.5 h-3.5" />
                                     <span className="max-w-[100px] truncate">{f.name}</span>
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleDownloadFile(f)}
+                                    className="p-1 text-emerald-700 hover:bg-emerald-50 rounded cursor-pointer"
+                                    title={`ดาวน์โหลดไฟล์ดิบ: ${f.name}`}
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleDeleteFileDirect(sub.id, f.id, f.name)}
+                                    className="p-1 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                                    title={`ลบไฟล์: ${f.name}`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                               ))}
@@ -1861,21 +2116,40 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                       {peerSub.files && peerSub.files.length > 0 && (
                         <div className="flex items-center gap-1.5 flex-wrap justify-end">
                           {peerSub.files.map((f, fIdx) => (
-                            <button
-                              key={f.id || fIdx}
-                              onClick={() => {
-                                onOpenFilePreview(f, peerSub.assignmentTitle, peerSub.memberName);
-                              }}
-                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl transition-colors cursor-pointer ${
-                                isMine
-                                  ? 'text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300'
-                                  : 'text-purple-700 bg-purple-100 hover:bg-purple-200 border border-purple-200'
-                              }`}
-                              title={`เปิดดูไฟล์ต้นฉบับในแท็บใหม่: ${f.name}`}
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span className="max-w-[120px] truncate">{f.name}</span>
-                            </button>
+                            <div key={f.id || fIdx} className="inline-flex items-center gap-1 p-1 bg-white border border-slate-200 rounded-lg text-xs">
+                              <button
+                                onClick={() => {
+                                  onOpenFilePreview(f, peerSub.assignmentTitle, peerSub.memberName);
+                                }}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 font-semibold rounded cursor-pointer ${
+                                  isMine
+                                    ? 'text-emerald-800 hover:bg-emerald-50'
+                                    : 'text-purple-700 hover:bg-purple-50'
+                                }`}
+                                title={`เปิดดูไฟล์ต้นฉบับ: ${f.name}`}
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span className="max-w-[100px] truncate">{f.name}</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleDownloadFile(f)}
+                                className="p-1 text-emerald-700 hover:bg-emerald-50 rounded cursor-pointer"
+                                title={`ดาวน์โหลดไฟล์ดิบ: ${f.name}`}
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+
+                              {(isMine || isAdmin) && (
+                                <button
+                                  onClick={() => handleDeleteFileDirect(peerSub.id, f.id, f.name)}
+                                  className="p-1 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                                  title={`ลบไฟล์: ${f.name}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           ))}
                         </div>
                       )}
