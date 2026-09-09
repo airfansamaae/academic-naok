@@ -192,8 +192,23 @@ export async function triggerDirectDownload(file: UploadedFile) {
     console.warn('[triggerDirectDownload] IndexedDB lookup notice:', idbErr);
   }
 
-  // SOURCE 3: Backend proxy download (Streams from Google Drive preserving exact filename and avoiding CORS)
-  if (file.driveFileId && !file.driveFileId.startsWith('mock_') && !file.driveFileId.startsWith('drive_local_') && !file.driveFileId.startsWith('file_')) {
+  // SOURCE 3: Backend proxy download by file ID (Streams raw binary file directly with original filename)
+  if (file.id) {
+    try {
+      const proxyUrl = `/api/files/download/${encodeURIComponent(file.id)}?name=${encodeURIComponent(originalFileName)}`;
+      const res = await fetch(proxyUrl);
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob && blob.size > 0) {
+          saveBlobDirectly(blob, originalFileName);
+          return;
+        }
+      }
+    } catch {}
+  }
+
+  // SOURCE 4: Backend proxy download by driveFileId
+  if (file.driveFileId) {
     try {
       const proxyUrl = `/api/drive/download/${encodeURIComponent(file.driveFileId)}?name=${encodeURIComponent(originalFileName)}`;
       const res = await fetch(proxyUrl);
@@ -204,12 +219,31 @@ export async function triggerDirectDownload(file: UploadedFile) {
           return;
         }
       }
-    } catch {
-      // Backend not running (e.g. Cloudflare Pages static hosting), proceed to next source
-    }
+    } catch {}
   }
 
-  // SOURCE 4: Direct Google Drive UC fetch or anchor trigger
+  // SOURCE 5: JSON base64 data retrieval from server
+  try {
+    const fetchId = file.id || file.driveFileId;
+    if (fetchId) {
+      const dataRes = await fetch(`/api/files/data/${encodeURIComponent(fetchId)}?name=${encodeURIComponent(originalFileName)}`);
+      if (dataRes.ok) {
+        const json = await dataRes.json();
+        if (json?.base64Data) {
+          const byteCharacters = atob(json.base64Data);
+          const byteNumbers = new Uint8Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const blob = new Blob([byteNumbers], { type: targetMime });
+          saveBlobDirectly(blob, originalFileName);
+          return;
+        }
+      }
+    }
+  } catch {}
+
+  // SOURCE 6: Direct Google Drive UC fetch or anchor trigger
   if (file.driveFileId && !file.driveFileId.startsWith('mock_') && !file.driveFileId.startsWith('drive_local_') && !file.driveFileId.startsWith('file_')) {
     const directUrl = `https://drive.google.com/uc?export=download&id=${file.driveFileId}&confirm=t`;
     try {
@@ -239,7 +273,7 @@ export async function triggerDirectDownload(file: UploadedFile) {
     return;
   }
 
-  // SOURCE 5: If downloadUrl is a valid web URL
+  // SOURCE 7: If downloadUrl is a valid web URL
   if (file.downloadUrl && file.downloadUrl.startsWith('http') && !file.downloadUrl.includes('drive_f_') && !file.downloadUrl.includes('mock_')) {
     const link = document.createElement('a');
     link.href = file.downloadUrl;
@@ -1485,6 +1519,33 @@ export class StorageService {
           mimeType: file.type,
         });
 
+        // Sync binary with server so any user on any device can view and download raw file
+        try {
+          fetch('/api/files/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileId: uploadedFileRecord.id,
+              clientFileId: uploadedFileRecord.id,
+              fileName: file.name,
+              mimeType: file.type || 'application/octet-stream',
+              base64Data: fullDataUrl,
+            }),
+          }).catch(() => {});
+          if (uploadedFileRecord.driveFileId) {
+            fetch('/api/files/upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fileId: uploadedFileRecord.driveFileId,
+                fileName: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                base64Data: fullDataUrl,
+              }),
+            }).catch(() => {});
+          }
+        } catch {}
+
         return uploadedFileRecord;
       }
     } catch (driveErr: any) {
@@ -1543,6 +1604,32 @@ export class StorageService {
           mimeType: file.type,
         });
 
+        try {
+          fetch('/api/files/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileId: uploadedFileRecord.id,
+              clientFileId: uploadedFileRecord.id,
+              fileName: file.name,
+              mimeType: file.type || 'application/octet-stream',
+              base64Data: fullDataUrl,
+            }),
+          }).catch(() => {});
+          if (uploadedFileRecord.driveFileId) {
+            fetch('/api/files/upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fileId: uploadedFileRecord.driveFileId,
+                fileName: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                base64Data: fullDataUrl,
+              }),
+            }).catch(() => {});
+          }
+        } catch {}
+
         return uploadedFileRecord;
       } catch (gasErr) {
         console.warn('[storageService] Direct GAS upload fallback notice:', gasErr);
@@ -1572,6 +1659,32 @@ export class StorageService {
       size: file.size,
       mimeType: file.type,
     });
+
+    try {
+      fetch('/api/files/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileId: uploadedFile.id,
+          clientFileId: uploadedFile.id,
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          base64Data: fullDataUrl,
+        }),
+      }).catch(() => {});
+      if (uploadedFile.driveFileId) {
+        fetch('/api/files/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileId: uploadedFile.driveFileId,
+            fileName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            base64Data: fullDataUrl,
+          }),
+        }).catch(() => {});
+      }
+    } catch {}
 
     return uploadedFile;
   }

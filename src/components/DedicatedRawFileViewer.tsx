@@ -437,14 +437,15 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
           // Tier 7: Construct minimal UploadedFile from URL parameters if available
           if (!resolvedFile && urlName) {
             const pType = params.get('preview_type') as any || 'other';
+            const driveId = params.get('drive_id') || '';
             resolvedFile = {
               id: fileId || 'url-resolved-file',
               name: urlName,
               size: 1024 * 1024,
               mimeType: urlMime || 'application/octet-stream',
-              driveFileId: '',
-              downloadUrl: '',
-              viewUrl: '',
+              driveFileId: driveId,
+              downloadUrl: driveId ? `https://drive.google.com/uc?export=download&id=${driveId}` : '',
+              viewUrl: driveId ? `https://drive.google.com/file/d/${driveId}/view` : '',
               previewType: pType,
               uploadedAt: new Date().toISOString(),
             };
@@ -452,14 +453,34 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
         }
       }
 
-      // If resolved file is missing binary dataUrl, check IndexedDB for binary
-      if (resolvedFile && !resolvedFile.fileDataUrl && resolvedFile.id) {
-        try {
-          const idbRecord = await getFileFromIndexedDb(resolvedFile.id);
-          if (idbRecord?.dataUrl) {
-            resolvedFile = { ...resolvedFile, fileDataUrl: idbRecord.dataUrl };
+      // If resolved file is missing binary dataUrl, check IndexedDB & Server endpoint for binary
+      if (resolvedFile && !resolvedFile.fileDataUrl) {
+        if (resolvedFile.id) {
+          try {
+            const idbRecord = await getFileFromIndexedDb(resolvedFile.id);
+            if (idbRecord?.dataUrl) {
+              resolvedFile = { ...resolvedFile, fileDataUrl: idbRecord.dataUrl };
+            }
+          } catch {}
+        }
+        if (!resolvedFile.fileDataUrl) {
+          const fetchId = resolvedFile.id || resolvedFile.driveFileId;
+          if (fetchId) {
+            try {
+              const res = await fetch(`/api/files/data/${encodeURIComponent(fetchId)}?name=${encodeURIComponent(resolvedFile.name)}`);
+              if (res.ok) {
+                const dataJson = await res.json();
+                if (dataJson?.dataUrl || dataJson?.base64Data) {
+                  resolvedFile = {
+                    ...resolvedFile,
+                    fileDataUrl: dataJson.dataUrl || `data:${dataJson.mimeType || 'application/octet-stream'};base64,${dataJson.base64Data}`,
+                    mimeType: dataJson.mimeType || resolvedFile.mimeType,
+                  };
+                }
+              }
+            } catch {}
           }
-        } catch {}
+        }
       }
 
       if (isCancelled) return;
@@ -502,6 +523,67 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
             rawBase64 = parts[1] || '';
           } else {
             rawBase64 = file.fileDataUrl;
+          }
+        }
+
+        // If rawBase64 is still missing, fetch from server endpoints
+        if (!rawBase64 && (file.id || file.driveFileId)) {
+          const fetchId = file.id || file.driveFileId;
+          if (fetchId) {
+            try {
+              const res = await fetch(`/api/files/data/${encodeURIComponent(fetchId)}?name=${encodeURIComponent(file.name)}`);
+              if (res.ok) {
+                const dataJson = await res.json();
+                if (dataJson?.base64Data) {
+                  rawBase64 = dataJson.base64Data;
+                  if (dataJson.mimeType) mimeType = dataJson.mimeType;
+                }
+              }
+            } catch {}
+          }
+          if (!rawBase64 && file.driveFileId && file.driveFileId !== fetchId) {
+            try {
+              const res = await fetch(`/api/files/data/${encodeURIComponent(file.driveFileId)}?name=${encodeURIComponent(file.name)}`);
+              if (res.ok) {
+                const dataJson = await res.json();
+                if (dataJson?.base64Data) {
+                  rawBase64 = dataJson.base64Data;
+                  if (dataJson.mimeType) mimeType = dataJson.mimeType;
+                }
+              }
+            } catch {}
+          }
+          if (!rawBase64 && fetchId) {
+            try {
+              const rawRes = await fetch(`/api/files/raw/${encodeURIComponent(fetchId)}`);
+              if (rawRes.ok) {
+                const ab = await rawRes.arrayBuffer();
+                if (ab && ab.byteLength > 0) {
+                  const u8 = new Uint8Array(ab);
+                  let bStr = '';
+                  for (let i = 0; i < u8.length; i++) {
+                    bStr += String.fromCharCode(u8[i]);
+                  }
+                  rawBase64 = btoa(bStr);
+                }
+              }
+            } catch {}
+          }
+          if (!rawBase64 && file.driveFileId) {
+            try {
+              const driveRes = await fetch(`/api/drive/download/${encodeURIComponent(file.driveFileId)}?name=${encodeURIComponent(file.name)}`);
+              if (driveRes.ok) {
+                const ab = await driveRes.arrayBuffer();
+                if (ab && ab.byteLength > 0) {
+                  const u8 = new Uint8Array(ab);
+                  let bStr = '';
+                  for (let i = 0; i < u8.length; i++) {
+                    bStr += String.fromCharCode(u8[i]);
+                  }
+                  rawBase64 = btoa(bStr);
+                }
+              }
+            } catch {}
           }
         }
 

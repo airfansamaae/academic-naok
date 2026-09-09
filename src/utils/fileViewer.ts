@@ -773,6 +773,7 @@ export function openAuthenticFileInNewTab(
   const queryParams = new URLSearchParams({
     view_raw_file: '1',
     file_id: file.id || '',
+    drive_id: file.driveFileId || '',
     name: file.name || '',
     mime: file.mimeType || '',
     title: assignmentTitle || '',

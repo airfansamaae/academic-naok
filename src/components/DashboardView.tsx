@@ -471,21 +471,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* Action Area: Member has button to send/submit; Admin has button to manage/edit */}
           <div className="flex items-center justify-between lg:justify-end gap-2.5 sm:gap-3 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-white/20">
-            {/* Member Submit Button (Or Admin Manage Button) */}
+            {/* Member Submit Button (Only shown for assignments / deadline; hidden for announcements & activities) */}
             {!isUserAdmin ? (
-              <button
-                id="notice-banner-submit-btn"
-                onClick={() => handleSelectTab('assignments')}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-2 sm:px-4 sm:py-2 text-xs font-black rounded-xl sm:rounded-2xl transition-all shadow-md transform hover:scale-105 active:scale-95 cursor-pointer ${
-                  currentNotice.type === 'deadline'
-                    ? 'bg-white text-red-700 hover:bg-red-50 shadow-red-950/40'
-                    : 'bg-slate-950 text-white hover:bg-slate-900 shadow-slate-950/30'
-                }`}
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>ส่งงานที่นี่</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+              currentNotice.type === 'deadline' && currentNotice.assignmentId ? (
+                <button
+                  id="notice-banner-submit-btn"
+                  onClick={() => handleSelectTab('assignments')}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 sm:px-4 sm:py-2 text-xs font-black rounded-xl sm:rounded-2xl transition-all shadow-md transform hover:scale-105 active:scale-95 cursor-pointer bg-white text-red-700 hover:bg-red-50 shadow-red-950/40"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>ส่งงานที่นี่</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              ) : null
             ) : (
               <button
                 id="notice-banner-admin-manage-btn"
