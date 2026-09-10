@@ -173,7 +173,9 @@ export default function App() {
           try {
             const parsed = JSON.parse(event.data);
             if (parsed && parsed.type === 'DATA_CHANGED') {
-              refreshAllData();
+              storage.pullLatestFromCloud(true).then(() => {
+                refreshAllData();
+              });
             }
           } catch {
             // Safe ignore

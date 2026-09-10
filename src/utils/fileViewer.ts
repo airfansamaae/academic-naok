@@ -688,10 +688,12 @@ export function buildStandardizedA4ViewerHtml(
         const a = document.createElement('a');
         a.href = target;
         a.download = fileName;
-        a.target = '_blank';
+        a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
+        setTimeout(function() {
+          if (a.parentNode) a.parentNode.removeChild(a);
+        }, 1000);
       }
     }
 
@@ -776,7 +778,9 @@ export function openAuthenticFileInNewTab(
     drive_id: file.driveFileId || '',
     name: file.name || '',
     mime: file.mimeType || '',
-    title: assignmentTitle || '',
+    preview_type: file.previewType || '',
+    size: String(file.size || 0),
+    title: assignmentTitle || file.name || '',
     uploader: submitterName || '',
   });
   const url = `/?${queryParams.toString()}`;

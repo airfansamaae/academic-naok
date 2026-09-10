@@ -128,22 +128,45 @@ async function startServer() {
     }
   };
 
-  const getLocalFile = (id: string) => {
+  const getLocalFile = (id: string, requestedName?: string) => {
     try {
-      if (!id) return null;
-      const binPath = path.join(UPLOAD_DIR, `${id}.bin`);
-      if (fs.existsSync(binPath)) {
-        const metaPath = path.join(UPLOAD_DIR, `${id}.meta.json`);
-        let meta: { fileName?: string; mimeType?: string; size?: number } = {};
-        if (fs.existsSync(metaPath)) {
-          try {
-            meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-          } catch {}
+      if (!id && !requestedName) return null;
+      if (id) {
+        const binPath = path.join(UPLOAD_DIR, `${id}.bin`);
+        if (fs.existsSync(binPath)) {
+          const metaPath = path.join(UPLOAD_DIR, `${id}.meta.json`);
+          let meta: { fileName?: string; mimeType?: string; size?: number } = {};
+          if (fs.existsSync(metaPath)) {
+            try {
+              meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            } catch {}
+          }
+          return {
+            buffer: fs.readFileSync(binPath),
+            meta,
+          };
         }
-        return {
-          buffer: fs.readFileSync(binPath),
-          meta,
-        };
+      }
+      // Fallback: If not found by exact id, search meta files by requestedName
+      if (requestedName) {
+        const files = fs.readdirSync(UPLOAD_DIR);
+        for (const file of files) {
+          if (file.endsWith('.meta.json')) {
+            try {
+              const metaContent = JSON.parse(fs.readFileSync(path.join(UPLOAD_DIR, file), 'utf-8'));
+              if (metaContent?.fileName === requestedName) {
+                const baseId = file.replace('.meta.json', '');
+                const binPath = path.join(UPLOAD_DIR, `${baseId}.bin`);
+                if (fs.existsSync(binPath)) {
+                  return {
+                    buffer: fs.readFileSync(binPath),
+                    meta: metaContent,
+                  };
+                }
+              }
+            } catch {}
+          }
+        }
       }
     } catch {}
     return null;
@@ -356,20 +379,24 @@ async function startServer() {
     const requestedName = (req.query.name as string) || '';
 
     // Priority 1: Check local disk storage (fastest, 100% authentic raw binary)
-    const local = getLocalFile(fileId);
+    const local = getLocalFile(fileId, requestedName);
     if (local) {
       const finalFileName = requestedName || local.meta?.fileName || 'document';
       const cleanFileName = path.basename(finalFileName).replace(/["\r\n]/g, '');
       const contentType = local.meta?.mimeType || 'application/octet-stream';
+      const ext = path.extname(cleanFileName);
+      const safeAscii = cleanFileName.replace(/[^\x20-\x7E]/g, '') || `document${ext}`;
       res.setHeader('Content-Type', contentType);
       res.setHeader(
         'Content-Disposition',
-        `attachment; filename="${encodeURIComponent(cleanFileName)}"; filename*=UTF-8''${encodeURIComponent(cleanFileName)}`
+        `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(cleanFileName)}`
       );
       return res.send(local.buffer);
     }
 
     const cleanFileName = path.basename(requestedName || 'document').replace(/["\r\n]/g, '');
+    const ext = path.extname(cleanFileName);
+    const safeAscii = cleanFileName.replace(/[^\x20-\x7E]/g, '') || `document${ext}`;
 
     try {
       const driveUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}&confirm=t`;
@@ -377,14 +404,19 @@ async function startServer() {
 
       if (driveResponse.ok) {
         const contentType = driveResponse.headers.get('content-type') || 'application/octet-stream';
-        res.setHeader('Content-Type', contentType);
-        res.setHeader(
-          'Content-Disposition',
-          `attachment; filename="${encodeURIComponent(cleanFileName)}"; filename*=UTF-8''${encodeURIComponent(cleanFileName)}`
-        );
+        // If an HTML error/login page is returned for a requested binary file, do not stream HTML as a corrupted binary
+        if (contentType.includes('text/html') && (ext === '.pdf' || ext === '.docx' || ext === '.xlsx' || ext === '.doc' || ext === '.png' || ext === '.jpg')) {
+          console.warn('[server.ts] Drive returned HTML instead of binary for:', fileId);
+        } else {
+          res.setHeader('Content-Type', contentType);
+          res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(cleanFileName)}`
+          );
 
-        const arrayBuffer = await driveResponse.arrayBuffer();
-        return res.send(Buffer.from(arrayBuffer));
+          const arrayBuffer = await driveResponse.arrayBuffer();
+          return res.send(Buffer.from(arrayBuffer));
+        }
       }
     } catch (err: any) {
       console.error('[server.ts] Download proxy error:', err);
@@ -396,7 +428,8 @@ async function startServer() {
   // Raw file endpoint for viewer / embed (inline display)
   app.get('/api/files/raw/:fileId', async (req, res) => {
     const { fileId } = req.params;
-    const local = getLocalFile(fileId);
+    const requestedName = (req.query.name as string) || '';
+    const local = getLocalFile(fileId, requestedName);
     if (local) {
       const contentType = local.meta?.mimeType || 'application/octet-stream';
       res.setHeader('Content-Type', contentType);
@@ -422,13 +455,14 @@ async function startServer() {
   // JSON base64 data for client-side parsers
   app.get('/api/files/data/:fileId', async (req, res) => {
     const { fileId } = req.params;
-    const local = getLocalFile(fileId);
+    const requestedName = (req.query.name as string) || '';
+    const local = getLocalFile(fileId, requestedName);
     if (local) {
       const mimeType = local.meta?.mimeType || 'application/octet-stream';
       const base64 = local.buffer.toString('base64');
       return res.json({
         success: true,
-        fileName: local.meta?.fileName || (req.query.name as string) || 'document',
+        fileName: local.meta?.fileName || requestedName || 'document',
         mimeType,
         base64Data: base64,
         dataUrl: `data:${mimeType};base64,${base64}`,
@@ -444,7 +478,7 @@ async function startServer() {
         const base64 = Buffer.from(arrayBuffer).toString('base64');
         return res.json({
           success: true,
-          fileName: (req.query.name as string) || 'document',
+          fileName: requestedName || 'document',
           mimeType,
           base64Data: base64,
           dataUrl: `data:${mimeType};base64,${base64}`,
@@ -570,13 +604,14 @@ async function startServer() {
           list.unshift(data);
         }
       } else if (action === 'delete') {
-        const idx = list.findIndex((item) => item.id === data.id || (data.title && item.title === data.title));
-        if (idx >= 0) {
-          list.splice(idx, 1);
-        }
-        if (table === 'assignments') {
-          serverDataStore.submissions = (serverDataStore.submissions || []).filter((s) => s.assignmentId !== data.id);
-          serverDataStore.announcements = (serverDataStore.announcements || []).filter((a) => a.assignmentId !== data.id);
+        serverDataStore[table] = (serverDataStore[table] || []).filter((item: any) => {
+          if (data && data.id && item.id === data.id) return false;
+          if (data && data.title && item.title === data.title) return false;
+          return true;
+        });
+        if (table === 'assignments' && data && data.id) {
+          serverDataStore.submissions = (serverDataStore.submissions || []).filter((s: any) => s.assignmentId !== data.id);
+          serverDataStore.announcements = (serverDataStore.announcements || []).filter((a: any) => a.assignmentId !== data.id);
         }
       } else if (action === 'setList') {
         serverDataStore[table] = Array.isArray(data) 

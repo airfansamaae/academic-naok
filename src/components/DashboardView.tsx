@@ -144,7 +144,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         id: `ann-${ann.id}`,
         title: ann.title,
         content: ann.content,
-        type: ann.type,
+        type: 'general', // ประกาศ & จัดกิจกรรม เป็นการแจ้งข่าวสาร/กิจกรรม ไม่ใช่การส่งงาน
         date: start,
         dateEnd: ann.dateEnd,
         authorName: ann.authorName || 'ฝ่ายวิชาการ',
@@ -436,7 +436,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       : 'bg-slate-950 text-white font-extrabold'
                   }`}
                 >
-                  {currentNotice.type === 'deadline' ? '🚨 กำหนดส่งงาน' : '📢 ประกาศเพื่อทราบ'}
+                  {currentNotice.type === 'deadline' ? '🚨 กำหนดส่งงาน (มอบหมายงาน)' : '📢 ประกาศ & จัดกิจกรรม'}
                 </span>
                 {currentNotice.date && (
                   <span
@@ -471,9 +471,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* Action Area: Member has button to send/submit; Admin has button to manage/edit */}
           <div className="flex items-center justify-between lg:justify-end gap-2.5 sm:gap-3 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-white/20">
-            {/* Member Submit Button (Only shown for assignments / deadline; hidden for announcements & activities) */}
+            {/* Member Submit Button (Only shown for assignments / deadline; NEVER for announcements & activities) */}
             {!isUserAdmin ? (
-              currentNotice.type === 'deadline' && currentNotice.assignmentId ? (
+              currentNotice.id.startsWith('assign-') && currentNotice.type === 'deadline' && currentNotice.assignmentId ? (
                 <button
                   id="notice-banner-submit-btn"
                   onClick={() => handleSelectTab('assignments')}
