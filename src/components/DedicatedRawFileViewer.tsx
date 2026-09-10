@@ -31,7 +31,8 @@ import { getActivePreviewFromIndexedDb, getFileFromIndexedDb } from '../utils/in
  * and automatic parsing of embedded tables (| col 1 | col 2 |).
  */
 function createA4PagesFromText(text: string, defaultTitle?: string): DocxParsedPage[] {
-  const effectiveText = text || defaultTitle || 'เอกสารขนาดมาตรฐาน A4';
+  const effectiveText = text || '';
+  if (!effectiveText.trim()) return [];
 
   const rawLines = effectiveText
     .split('\n')
@@ -148,21 +149,18 @@ function createA4PagesFromText(text: string, defaultTitle?: string): DocxParsedP
     i++;
   }
 
-  // Ensure elements is never completely empty
+  // If elements is empty, return empty list
   if (elements.length === 0) {
-    const titleText = defaultTitle || 'เอกสารมาตรฐาน A4';
-    elements.push({
-      type: 'paragraph',
-      align: 'center',
-      isIndented: false,
-      runs: [{ text: titleText, bold: true, fontSizePt: 20 }]
-    });
-    elements.push({
-      type: 'paragraph',
-      align: 'left',
-      isIndented: true,
-      runs: [{ text: 'เอกสารขนาดมาตรฐาน A4 (210 × 297 มม.) แสดงผลตามรูปแบบฟอนต์ TH Sarabun พร้อมสำหรับการเปิดอ่านและดาวน์โหลดไฟล์ต้นฉบับ', fontSizePt: 16 }]
-    });
+    if (defaultTitle) {
+      elements.push({
+        type: 'paragraph',
+        align: 'center',
+        isIndented: false,
+        runs: [{ text: defaultTitle, bold: true, fontSizePt: 18 }]
+      });
+    } else {
+      return [];
+    }
   }
 
   // Paginate into realistic A4 pages (~10-12 elements per A4 page, tables count based on rows)
@@ -211,10 +209,11 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // A4 pagination state
+  // A4 pagination & Word doc state
   const [parsedPages, setParsedPages] = useState<DocxParsedPage[]>([]);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
-  const [pdfViewMode, setPdfViewMode] = useState<'a4' | 'native'>('a4');
+  const [docxArrayBuffer, setDocxArrayBuffer] = useState<ArrayBuffer | null>(null);
+  const docxContainerRef = useRef<HTMLDivElement>(null);
 
   // Dynamic Scroll Page Tracking (เมื่อเลื่อนลงมา ก็จะมีหน้าให้เห็นว่า อยู่หน้าที่เท่าไร)
   const [currentPageInView, setCurrentPageInView] = useState<number>(1);
@@ -610,6 +609,15 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
         const isDocx = lower.endsWith('.docx') || lower.endsWith('.doc') || mimeType.includes('word') || mimeType.includes('officedocument') || file.previewType === 'doc';
         const isSheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || mimeType.includes('spreadsheetml') || mimeType.includes('excel') || file.previewType === 'spreadsheet';
         const isPdf = lower.endsWith('.pdf') || mimeType === 'application/pdf' || file.previewType === 'pdf';
+        const isImage = file.mimeType?.startsWith('image/') || lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif') || lower.endsWith('.svg');
+
+        if (isPdf) {
+          mimeType = 'application/pdf';
+        } else if (isDocx) {
+          mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        } else if (isSheet) {
+          mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        }
 
         if (rawBase64) {
           const binaryString = atob(rawBase64);
@@ -623,21 +631,16 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
           currentBlobUrl = URL.createObjectURL(blob);
           setBlobUrl(currentBlobUrl);
 
-          // Render Word Document (.docx) - Authentic A4 Pagination
+          // Render Word Document (.docx)
           if (isDocx) {
+            setDocxArrayBuffer(arrayBuffer);
             try {
-              // Parse directly into authentic A4 pages using our custom parser
               const result = await parseDocxBinary(arrayBuffer);
               if (result && result.pages && result.pages.length > 0) {
                 setParsedPages(result.pages);
-              } else {
-                const textPages = createA4PagesFromText(file.previewContent || file.name, file.name);
-                setParsedPages(textPages);
               }
             } catch (pErr) {
-              console.warn('[DedicatedRawFileViewer] parseDocxBinary error, checking previewContent:', pErr);
-              const textPages = createA4PagesFromText(file.previewContent || file.name, file.name);
-              setParsedPages(textPages);
+              console.warn('[DedicatedRawFileViewer] parseDocxBinary error:', pErr);
             }
           } else if (isSheet) {
             // Render Excel Spreadsheet (.xlsx / .xls)
@@ -656,27 +659,12 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
             } catch (sheetErr) {
               console.warn('[DedicatedRawFileViewer] XLSX read failed:', sheetErr);
             }
-          } else if (isPdf) {
-            // Always provide authentic A4 pages for PDF
-            const textPages = createA4PagesFromText(file.previewContent || file.name, file.name);
-            setParsedPages(textPages);
-          } else if (!isImage) {
-            // Any other binary document
-            const textPages = createA4PagesFromText(file.previewContent || file.name, file.name);
-            setParsedPages(textPages);
           }
         } else if (file.previewContent) {
-          // If no raw base64 but previewContent exists (e.g. text documents)
           setParsedPages(createA4PagesFromText(file.previewContent, file.name));
         } else if (file.viewUrl || file.driveFileId) {
-          // Clean Google Drive preview URL with minimal parameters (NEVER Google Docs Viewer)
           const safeUrl = getSafeGoogleDrivePreviewUrl(file);
           setBlobUrl(safeUrl || file.viewUrl || null);
-          const textPages = createA4PagesFromText(`${file.name}\n\nไฟล์เอกสารต้นฉบับใน Google Drive\nพร้อมสำหรับการอ่านและดาวน์โหลดใช้งาน`, file.name);
-          setParsedPages(textPages);
-        } else {
-          const textPages = createA4PagesFromText(`${file.name}\n\nเอกสารขนาดมาตรฐาน A4 พร้อมสำหรับการอ่านและดาวน์โหลดไฟล์ต้นฉบับ`, file.name);
-          setParsedPages(textPages);
         }
       } catch (err: any) {
         console.error('[DedicatedRawFileViewer] Error parsing raw file:', err);
@@ -695,6 +683,44 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
     };
   }, [file]);
 
+  const lowerName = (file?.name || '').toLowerCase();
+  const isPdf = lowerName.endsWith('.pdf') || file?.mimeType === 'application/pdf' || file?.previewType === 'pdf';
+  const isDocx = lowerName.endsWith('.docx') || lowerName.endsWith('.doc') || file?.previewType === 'doc' || (file?.mimeType && file.mimeType.includes('word'));
+  const isSheet = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls') || file?.previewType === 'spreadsheet' || (file?.mimeType && file.mimeType.includes('spreadsheet'));
+  const isImage = lowerName.match(/\.(png|jpg|jpeg|gif|webp|svg)$/) || file?.previewType === 'image' || (file?.mimeType && file.mimeType.includes('image'));
+  const totalPages = parsedPages.length || (isPdf ? 1 : 1);
+
+  // Render Word document via docx-preview if arrayBuffer is present
+  useEffect(() => {
+    let isMounted = true;
+    if (isDocx && docxArrayBuffer && docxContainerRef.current) {
+      docxContainerRef.current.innerHTML = '';
+      renderAsync(docxArrayBuffer, docxContainerRef.current, undefined, {
+        className: 'docx',
+        inWrapper: true,
+        ignoreWidth: false,
+        ignoreHeight: false,
+        breakPages: true,
+        renderHeaders: true,
+        renderFooters: true,
+        renderFootnotes: true,
+        renderEndnotes: true,
+      }).catch(async (err) => {
+        if (!isMounted) return;
+        console.warn('[DedicatedRawFileViewer] docx-preview renderAsync failed:', err);
+        try {
+          const result = await parseDocxBinary(docxArrayBuffer);
+          if (result && result.pages && result.pages.length > 0) {
+            setParsedPages(result.pages);
+          }
+        } catch {}
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [isDocx, docxArrayBuffer]);
+
   const handleClose = () => {
     if (onClose) {
       onClose();
@@ -706,20 +732,6 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
       }
     }
   };
-
-  const handleOpenInNewTab = () => {
-    if (file) {
-      openAuthenticFileInNewTab(file, assignmentTitle, submitterName);
-    }
-  };
-
-  const lowerName = (file?.name || '').toLowerCase();
-  const isPdf = lowerName.endsWith('.pdf') || file?.mimeType === 'application/pdf' || file?.previewType === 'pdf';
-  const isDocx = lowerName.endsWith('.docx') || lowerName.endsWith('.doc') || file?.previewType === 'doc' || (file?.mimeType && file.mimeType.includes('word'));
-  const isSheet = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls') || file?.previewType === 'spreadsheet' || (file?.mimeType && file.mimeType.includes('spreadsheet'));
-  const isImage = lowerName.match(/\.(png|jpg|jpeg|gif|webp|svg)$/) || file?.previewType === 'image' || (file?.mimeType && file.mimeType.includes('image'));
-
-  const totalPages = parsedPages.length || (isPdf ? 1 : 1);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans select-none relative">
@@ -812,42 +824,10 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
           </div>
         </div>
 
-        {/* Center/Right: PDF Mode Selector, Zoom Controls, Download, Open in New Tab, Close */}
+        {/* Center/Right: Zoom Controls, Download, Close */}
         <div className="flex items-center gap-2">
-          {/* PDF View Mode Selector (A4 standard vs Native embed) */}
-          {isPdf && (
-            <div className="flex items-center bg-slate-800/90 border border-slate-700/80 rounded-xl p-1 gap-1">
-              <button
-                type="button"
-                onClick={() => setPdfViewMode('a4')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
-                  pdfViewMode === 'a4'
-                    ? 'bg-purple-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                }`}
-                title="มุมมองจัดหน้ากระดาษ A4 มาตรฐาน (ฟอนต์ TH Sarabun New)"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>มุมมองเอกสาร A4</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPdfViewMode('native')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
-                  pdfViewMode === 'native'
-                    ? 'bg-purple-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                }`}
-                title="มุมมองไฟล์ PDF ต้นฉบับผ่าน PDF Viewer"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>มุมมอง PDF ต้นฉบับ</span>
-              </button>
-            </div>
-          )}
-
-          {/* Zoom Controls */}
-          {(isDocx || isPdf || parsedPages.length > 0 || isImage) && (
+          {/* Zoom Controls (for Word, Sheet, Image) */}
+          {(isDocx || isSheet || isImage) && (
             <div className="hidden md:flex items-center bg-slate-800/80 border border-slate-700/80 rounded-xl p-1 gap-1">
               <button
                 type="button"
@@ -871,10 +851,10 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
               <button
                 type="button"
                 onClick={() => setZoomLevel(100)}
-                title="ขนาด A4 พอดี (100%)"
+                title="ขนาดพอดี (100%)"
                 className="px-2 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-700 hover:text-white rounded-lg transition-colors cursor-pointer"
               >
-                100% A4
+                100%
               </button>
             </div>
           )}
@@ -885,25 +865,12 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
               type="button"
               id="btn-single-download"
               onClick={() => triggerDirectDownload(file)}
-              title="ดาวน์โหลดไฟล์ต้นฉบับ (1 คลิก)"
+              title="ดาวน์โหลดไฟล์ต้นฉบับ"
               className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-lg shadow-emerald-950/50 transition-all cursor-pointer shrink-0"
             >
               <Download className="w-4 h-4" />
               <span className="hidden sm:inline">ดาวน์โหลดไฟล์ต้นฉบับ</span>
               <span className="sm:hidden">ดาวน์โหลด</span>
-            </button>
-          )}
-
-          {/* Optional: Open in New Tab Button (when viewed as in-app modal) */}
-          {isModalMode && file && (
-            <button
-              type="button"
-              onClick={handleOpenInNewTab}
-              title="เปิดในแท็บแยกใหม่"
-              className="hidden lg:inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-purple-300 hover:text-white text-xs font-medium rounded-xl border border-slate-700 transition-colors cursor-pointer shrink-0"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>เปิดในแท็บแยก</span>
             </button>
           )}
 
@@ -916,22 +883,21 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
             className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white text-xs sm:text-sm font-medium rounded-xl border border-slate-700 transition-colors cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
-            <span className="hidden sm:inline">ปิดหน้าต่าง</span>
+            <span className="hidden sm:inline">ปิด</span>
           </button>
         </div>
       </header>
 
-      {/* VIEWER CANVAS - Authentic Raw Original File Display */}
+      {/* VIEWER CANVAS - Authentic Raw Original File Display in ONE SINGLE VIEW */}
       <main 
         ref={scrollContainerRef}
         onScroll={handleContainerScroll}
-        className="flex-1 relative overflow-y-auto bg-slate-900/95 flex flex-col items-center"
+        className="flex-1 relative overflow-y-auto bg-slate-950 flex flex-col items-center w-full"
       >
         {loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 z-30 gap-3">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 z-30 gap-3">
             <div className="w-10 h-10 border-3 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-sm font-medium text-slate-200">กำลังเปิดอ่านไฟล์ต้นฉบับแท้...</p>
-            <p className="text-xs text-slate-400">จัดรูปแบบมาตรฐาน A4 (210 × 297 มม.) • Font: TH Sarabun</p>
+            <p className="text-sm font-medium text-slate-200">กำลังเปิดอ่านไฟล์ต้นฉบับ...</p>
           </div>
         )}
 
@@ -957,25 +923,60 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
 
         {!error && file && (
           <>
-            {/* 1. AUTHENTIC A4 PAGINATED VIEWER FOR WORD DOCX, PDF (A4 MODE), AND TEXT DOCUMENTS */}
-            {!isSheet && !isImage && !(isPdf && pdfViewMode === 'native') && parsedPages.length > 0 && (
-              <div className="w-full flex flex-col items-center py-8 px-4 sm:px-8">
-                {/* Single Authentic View: Clear A4 Sheets with dividers and exact table fidelity */}
-                <div 
-                  className="flex flex-col items-center w-full transition-transform duration-150 origin-top"
-                  style={{ transform: `scale(${zoomLevel / 100})` }}
-                >
-                  {parsedPages.map((page, pageIdx) => {
-                    const pageNum = page.pageNumber || pageIdx + 1;
-                    return (
-                      <React.Fragment key={pageNum}>
-                        {/* Standardized A4 Sheet: 210 x 297 mm, Margins Top 25mm, Bottom 20mm, Left 25mm, Right 20mm */}
+            {/* 1. AUTHENTIC PDF: Displayed in full native viewer */}
+            {isPdf && (
+              <div className="w-full flex-1 flex flex-col p-2 sm:p-4 h-[calc(100vh-68px)]">
+                {blobUrl ? (
+                  <iframe
+                    src={`${blobUrl}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`}
+                    className="w-full h-full border-0 bg-white rounded-xl shadow-2xl"
+                    title={file.name}
+                  />
+                ) : file.driveFileId || file.viewUrl ? (
+                  <iframe
+                    src={getSafeGoogleDrivePreviewUrl(file) || file.viewUrl}
+                    className="w-full h-full border-0 bg-white rounded-xl shadow-2xl"
+                    title={file.name}
+                    allow="autoplay"
+                  />
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-900 rounded-xl">
+                    <FileText className="w-12 h-12 text-rose-400 mb-3" />
+                    <p className="text-white font-bold text-base mb-3">{file.name}</p>
+                    <button
+                      type="button"
+                      onClick={() => triggerDirectDownload(file)}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-semibold text-sm cursor-pointer"
+                    >
+                      ดาวน์โหลดไฟล์ต้นฉบับ
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 2. AUTHENTIC WORD DOCX (.docx): Rendered via docx-preview or authentic parsed pages */}
+            {isDocx && (
+              <div className="w-full flex-1 flex flex-col items-center py-6 px-4 overflow-y-auto">
+                <div
+                  ref={docxContainerRef}
+                  className="docx-render-stage w-full max-w-[210mm] bg-white text-slate-900 shadow-2xl rounded-sm select-text"
+                  style={{ minHeight: '297mm', transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
+                />
+                {parsedPages.length > 0 && (!docxContainerRef.current || docxContainerRef.current.children.length === 0) && (
+                  <div 
+                    className="flex flex-col items-center w-full transition-transform duration-150 origin-top"
+                    style={{ transform: `scale(${zoomLevel / 100})` }}
+                  >
+                    {parsedPages.map((page, pageIdx) => {
+                      const pageNum = page.pageNumber || pageIdx + 1;
+                      return (
                         <div 
+                          key={pageNum}
                           ref={(el) => registerPageRef(pageNum, el)}
                           data-page-index={pageNum}
-                          className="a4-page-sheet flex flex-col justify-start select-text relative"
+                          className="a4-page-sheet flex flex-col justify-start select-text relative mb-6"
                         >
-                          {/* Page Content Body (TH Sarabun font, clear font size, raw table rendering) */}
                           <div className="flex-1 space-y-3.5 text-slate-900 leading-relaxed font-sarabun">
                             {page.elements.map((el, elIdx) => {
                               if (el.type === 'paragraph') {
@@ -991,22 +992,20 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                                     className={`${alignClass} ${indentClass} leading-relaxed my-1.5`}
                                     style={{ fontSize: '16pt' }}
                                   >
-                                    {el.runs.map((run, rIdx) => {
-                                      const style: React.CSSProperties = {};
-                                      if (run.bold) style.fontWeight = 'bold';
-                                      if (run.italic) style.fontStyle = 'italic';
-                                      if (run.underline) style.textDecoration = 'underline';
-                                      if (run.color) style.color = run.color;
-                                      if (run.fontSizePt) {
-                                        style.fontSize = `${run.fontSizePt}pt`;
-                                      }
-
-                                      return (
-                                        <span key={rIdx} style={style}>
-                                          {run.text}
-                                        </span>
-                                      );
-                                    })}
+                                    {el.runs.map((run, rIdx) => (
+                                      <span 
+                                        key={rIdx} 
+                                        style={{
+                                          fontWeight: run.bold ? 'bold' : undefined,
+                                          fontStyle: run.italic ? 'italic' : undefined,
+                                          textDecoration: run.underline ? 'underline' : undefined,
+                                          color: run.color || undefined,
+                                          fontSize: run.fontSizePt ? `${run.fontSizePt}pt` : undefined
+                                        }}
+                                      >
+                                        {run.text}
+                                      </span>
+                                    ))}
                                   </p>
                                 );
                               }
@@ -1034,65 +1033,29 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                                   <div key={elIdx} className="my-4 overflow-x-auto w-full">
                                     <table 
                                       className="w-full border-collapse font-sarabun text-[14pt] leading-normal my-2 table-auto"
-                                      style={{
-                                        border: `1.5px solid ${outerBorder}`,
-                                        borderColor: outerBorder
-                                      }}
+                                      style={{ border: `1.5px solid ${outerBorder}` }}
                                     >
                                       <tbody>
                                         {tableRows.map((row, rIdx) => {
                                           const isHeader = row.isHeader || rIdx === 0;
                                           return (
-                                            <tr 
-                                              key={rIdx} 
-                                              className={isHeader ? 'font-bold' : ''}
-                                            >
-                                              {row.cells.map((cell, cIdx) => {
-                                                const cellBg = cell.bgColor || (isHeader ? '#F1F5F9' : undefined);
-                                                const cellAlign = cell.align || (isHeader ? 'center' : 'left');
-
-                                                return (
-                                                  <td 
-                                                    key={cIdx} 
-                                                    colSpan={cell.colSpan}
-                                                    rowSpan={cell.rowSpan}
-                                                    className={`p-2.5 text-slate-900 align-top ${
-                                                      cellAlign === 'center'
-                                                        ? 'text-center'
-                                                        : cellAlign === 'right'
-                                                        ? 'text-right'
-                                                        : cellAlign === 'justify'
-                                                        ? 'text-justify'
-                                                        : 'text-left'
-                                                    }`}
-                                                    style={{
-                                                      backgroundColor: cellBg || undefined,
-                                                      border: `1px solid ${innerBorder}`,
-                                                      fontSize: cell.fontSizePt ? `${cell.fontSizePt}pt` : isHeader ? '14pt' : '13pt',
-                                                      fontWeight: cell.bold || isHeader ? 700 : 400
-                                                    }}
-                                                  >
-                                                    {cell.runs && cell.runs.length > 0 ? (
-                                                      cell.runs.map((run, runIdx) => (
-                                                        <span
-                                                          key={runIdx}
-                                                          style={{
-                                                            fontWeight: run.bold ? 700 : undefined,
-                                                            fontStyle: run.italic ? 'italic' : undefined,
-                                                            textDecoration: run.underline ? 'underline' : undefined,
-                                                            color: run.color || undefined,
-                                                            fontSize: run.fontSizePt ? `${run.fontSizePt}pt` : undefined
-                                                          }}
-                                                        >
-                                                          {run.text}
-                                                        </span>
-                                                      ))
-                                                    ) : (
-                                                      <span className="whitespace-pre-line">{cell.text}</span>
-                                                    )}
-                                                  </td>
-                                                );
-                                              })}
+                                            <tr key={rIdx} className={isHeader ? 'font-bold' : ''}>
+                                              {row.cells.map((cell, cIdx) => (
+                                                <td 
+                                                  key={cIdx} 
+                                                  colSpan={cell.colSpan}
+                                                  rowSpan={cell.rowSpan}
+                                                  className={`p-2.5 text-slate-900 align-top ${cell.align === 'center' ? 'text-center' : 'text-left'}`}
+                                                  style={{
+                                                    backgroundColor: cell.bgColor || (isHeader ? '#F1F5F9' : undefined),
+                                                    border: `1px solid ${innerBorder}`,
+                                                    fontSize: cell.fontSizePt ? `${cell.fontSizePt}pt` : isHeader ? '14pt' : '13pt',
+                                                    fontWeight: cell.bold || isHeader ? 700 : 400
+                                                  }}
+                                                >
+                                                  {cell.text}
+                                                </td>
+                                              ))}
                                             </tr>
                                           );
                                         })}
@@ -1102,112 +1065,22 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                                 );
                               }
 
-                              if (el.type === 'image' && el.dataUrl) {
-                                return (
-                                  <div key={elIdx} className="my-3 flex justify-center">
-                                    <img 
-                                      src={el.dataUrl} 
-                                      alt="เอกสารแนบ" 
-                                      className="max-w-full max-h-[350px] object-contain border border-slate-300 rounded shadow-xs" 
-                                      referrerPolicy="no-referrer"
-                                    />
-                                  </div>
-                                );
-                              }
-
                               return null;
                             })}
                           </div>
                         </div>
-
-                        {/* DISTINCT A4 PAGE SEPARATOR BAR BETWEEN PAGES */}
-                        {pageIdx < parsedPages.length - 1 && (
-                          <div className="w-full max-w-[210mm] my-8 flex items-center justify-center gap-3 select-none">
-                            <div className="h-px bg-slate-700/60 flex-1" />
-                            <div className="flex items-center gap-2 px-4 py-1.5 bg-slate-800 border border-slate-700 rounded-full text-xs font-semibold text-slate-300 shadow-md">
-                              <FileText className="w-3.5 h-3.5 text-purple-400" />
-                              <span>เส้นคั่นแบ่งหน้ามาตรฐาน A4 (210 × 297 มม.)</span>
-                            </div>
-                            <div className="h-px bg-slate-700/60 flex-1" />
-                          </div>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* 2. AUTHENTIC PDF VIEWER (Standardized A4 container with CSS margin/padding, toolbar=0 to disable chrome) */}
-            {isPdf && pdfViewMode === 'native' && (
-              <div className="w-full flex flex-col items-center py-8 px-4 sm:px-8">
-                <div 
-                  ref={(el) => registerPageRef(1, el)}
-                  data-page-index={1}
-                  className="w-full max-w-[210mm] transition-transform duration-150 origin-top flex flex-col items-center"
-                  style={{ transform: `scale(${zoomLevel / 100})` }}
-                >
-                  <div 
-                    className="a4-page-sheet p-0 overflow-hidden bg-white flex flex-col"
-                    style={{ minHeight: '297mm', padding: 0 }}
-                  >
-                    {/* Clean PDF Header inside A4 Sheet */}
-                    <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <FileText className="w-4 h-4 text-purple-600 shrink-0" />
-                        <span className="text-xs font-bold text-slate-800 truncate">{file.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setPdfViewMode('a4')}
-                          className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                        >
-                          สลับเป็นมุมมอง A4 (TH Sarabun)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => triggerDirectDownload(file)}
-                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1"
-                        >
-                          <Download className="w-3 h-3" />
-                          <span>ดาวน์โหลด</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {blobUrl ? (
-                      <iframe
-                        src={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
-                        className="w-full flex-1 border-0 bg-white"
-                        style={{ minHeight: '275mm' }}
-                        title={file.name}
-                      />
-                    ) : (
-                      <div className="p-8 text-center bg-white text-slate-800 flex flex-col items-center justify-center flex-1">
-                        <FileText className="w-12 h-12 text-purple-600 mb-3" />
-                        <p className="font-sarabun font-bold text-[18pt] mb-2">{file.name}</p>
-                        <p className="text-sm text-slate-600 mb-4">คลิกปุ่มด้านล่างเพื่อเปิดอ่านในโหมดเอกสารมาตรฐาน A4 หรือดาวน์โหลดไฟล์</p>
-                        <button
-                          type="button"
-                          onClick={() => setPdfViewMode('a4')}
-                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold text-sm cursor-pointer mb-2"
-                        >
-                          เปิดในมุมมองเอกสาร A4 (TH Sarabun)
-                        </button>
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
-                </div>
+                )}
               </div>
             )}
 
-            {/* 3. EXCEL / SPREADSHEET VIEWER: Authentic workbook renderer in A4 Sheet layout */}
+            {/* 3. AUTHENTIC EXCEL SPREADSHEET (.xlsx / .xls): Direct table of sheet cells */}
             {isSheet && (
-              <div className="w-full flex flex-col items-center py-6 px-4 sm:px-8">
-                {/* Sheet Tabs Bar */}
+              <div className="w-full flex-1 flex flex-col items-center py-4 px-3 sm:px-6 overflow-y-auto">
                 {sheetNames.length > 1 && (
-                  <div className="mb-4 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5 overflow-x-auto max-w-[210mm] w-full">
+                  <div className="mb-3 bg-slate-900 border border-slate-800 p-1 rounded-xl flex items-center gap-1.5 overflow-x-auto max-w-full">
                     {sheetNames.map((name) => (
                       <button
                         key={name}
@@ -1225,169 +1098,113 @@ export const DedicatedRawFileViewer: React.FC<DedicatedRawFileViewerProps> = ({
                   </div>
                 )}
 
-                {/* A4 Sheet Container for Spreadsheet */}
                 <div 
-                  ref={(el) => registerPageRef(1, el)}
-                  data-page-index={1}
-                  className="a4-page-sheet flex flex-col justify-between"
+                  className="w-full max-w-6xl bg-white text-slate-900 rounded-xl shadow-2xl overflow-hidden border border-slate-300 my-2"
                   style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
                 >
-                  <div>
-                    {/* Spreadsheet Table Grid - Raw Data Display */}
-                    <div className="overflow-x-auto w-full my-2">
-                      {activeSheet && sheetData[activeSheet] && sheetData[activeSheet].length > 0 ? (() => {
-                        const rawRows = sheetData[activeSheet];
-                        const headerRow = rawRows[0] || [];
-                        const bodyRows = rawRows.slice(1);
-
-                        return (
-                          <div className="w-full">
-                            {/* Exact Table Matching Raw File */}
-                            <table 
-                              className="w-full border-collapse font-sarabun text-[14pt] table-auto"
-                              style={{ border: '1.5px solid #475569' }}
-                            >
-                              <thead>
-                                <tr className="bg-[#F1F5F9] text-slate-900">
-                                  {headerRow.map((colName: any, colIdx: number) => (
-                                    <th 
-                                      key={colIdx} 
-                                      className="px-3 py-2.5 font-bold text-center text-[14pt] leading-snug"
-                                      style={{ border: '1px solid #94A3B8' }}
-                                    >
-                                      {String(colName ?? '')}
-                                    </th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {bodyRows.map((row: any[], rowIdx: number) => (
-                                  <tr key={rowIdx}>
-                                    {headerRow.map((_: any, colIdx: number) => {
-                                      const cell = row[colIdx];
-                                      const val = cell !== null && cell !== undefined ? String(cell) : '';
-                                      const isSeq = colIdx === 0;
-                                      const isId = colIdx === 1;
-                                      const isName = colIdx === 2;
-                                      const isNumeric = !isNaN(Number(val)) && val.trim() !== '';
-
-                                      let cellAlign = 'text-center';
-                                      if (isName) cellAlign = 'text-left pl-3 pr-2';
-                                      else if (isNumeric && !isSeq && !isId) cellAlign = 'text-center';
-
-                                      return (
-                                        <td 
-                                          key={colIdx} 
-                                          className={`px-3 py-2 text-slate-900 text-[13.5pt] align-middle ${cellAlign}`}
-                                          style={{ border: '1px solid #94A3B8' }}
-                                        >
-                                          {val}
-                                        </td>
-                                      );
-                                    })}
-                                  </tr>
+                  <div className="overflow-x-auto max-h-[calc(100vh-140px)]">
+                    {activeSheet && sheetData[activeSheet] && sheetData[activeSheet].length > 0 ? (() => {
+                      const rawRows = sheetData[activeSheet];
+                      const headerRow = rawRows[0] || [];
+                      const bodyRows = rawRows.slice(1);
+                      return (
+                        <table className="w-full border-collapse font-sarabun text-[14pt] table-auto select-text">
+                          <thead className="sticky top-0 bg-slate-100 z-10">
+                            <tr className="border-b border-slate-300">
+                              <th className="px-3 py-2 text-center text-slate-500 font-semibold border-r border-slate-300 text-xs w-12 bg-slate-200">#</th>
+                              {headerRow.map((col: any, idx: number) => (
+                                <th key={idx} className="px-3 py-2.5 text-left font-bold text-slate-800 border-r border-slate-300 last:border-r-0 whitespace-nowrap">
+                                  {String(col ?? '')}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bodyRows.map((r: any[], rIdx: number) => (
+                              <tr key={rIdx} className="hover:bg-slate-50 border-b border-slate-200 last:border-b-0">
+                                <td className="px-3 py-1.5 text-center text-slate-400 text-xs border-r border-slate-200 bg-slate-50 font-mono">
+                                  {rIdx + 1}
+                                </td>
+                                {headerRow.map((_: any, cIdx: number) => (
+                                  <td key={cIdx} className="px-3 py-2 text-slate-800 border-r border-slate-200 last:border-r-0 whitespace-pre-wrap">
+                                    {r[cIdx] !== null && r[cIdx] !== undefined ? String(r[cIdx]) : ''}
+                                  </td>
                                 ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        );
-                      })() : (
-                        <div className="p-8 text-center text-slate-400 text-sm">
-                          ไม่มีข้อมูลตารางในชีตนี้
-                        </div>
-                      )}
-                    </div>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      );
+                    })() : (
+                      <div className="p-8 text-center text-slate-400 text-sm">
+                        ไม่มีข้อมูลตารางในชีตนี้
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* 4. IMAGE VIEWER: Standardized A4 container with CSS margin/padding */}
+            {/* 4. AUTHENTIC IMAGE VIEWER */}
             {isImage && (
-              <div className="w-full flex flex-col items-center py-8 px-4 sm:px-8">
+              <div className="w-full flex-1 flex items-center justify-center p-4 overflow-auto">
+                <img
+                  src={file.fileDataUrl || blobUrl || ''}
+                  alt={file.name}
+                  className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl bg-white"
+                />
+              </div>
+            )}
+
+            {/* 5. TEXT / PREVIEW CONTENT ONLY (When no binary parser matched) */}
+            {!isPdf && !isDocx && !isSheet && !isImage && file.previewContent && (
+              <div className="w-full flex-1 flex flex-col items-center py-6 px-4 overflow-y-auto">
                 <div 
-                  ref={(el) => registerPageRef(1, el)}
-                  data-page-index={1}
-                  className="w-full max-w-[210mm] transition-transform duration-150 origin-top flex flex-col items-center"
-                  style={{ transform: `scale(${zoomLevel / 100})` }}
+                  className="a4-page-sheet flex flex-col justify-start select-text p-8 bg-white text-slate-900 rounded shadow-2xl max-w-[210mm] w-full"
+                  style={{ minHeight: '297mm' }}
                 >
-                  <div className="a4-page-sheet flex flex-col justify-center items-center select-none">
-                    <div className="flex-1 flex items-center justify-center p-2 w-full">
-                      <img
-                        src={file.fileDataUrl || blobUrl || ''}
-                        alt={file.name}
-                        className="max-w-full max-h-[250mm] object-contain"
-                      />
-                    </div>
-                  </div>
+                  <pre className="font-sarabun text-[15pt] leading-relaxed whitespace-pre-wrap text-slate-900 font-sans">
+                    {file.previewContent}
+                  </pre>
                 </div>
               </div>
             )}
 
-            {/* 5. CATCH-ALL AUTHENTIC A4 SHEET FALLBACK: Guarantees a white A4 paper is ALWAYS shown, NEVER an empty black screen */}
-            {parsedPages.length === 0 && !isSheet && !(isPdf && pdfViewMode === 'native' && blobUrl) && !isImage && (
-              <div className="w-full flex flex-col items-center py-8 px-4 sm:px-8">
-                <div 
-                  className="flex flex-col items-center w-full transition-transform duration-150 origin-top"
-                  style={{ transform: `scale(${zoomLevel / 100})` }}
-                >
-                  <div 
-                    ref={(el) => registerPageRef(1, el)}
-                    data-page-index={1}
-                    className="a4-page-sheet flex flex-col justify-between select-text relative"
-                  >
-                    <div>
-                      {/* Document Header */}
-                      <div className="text-center pb-6 border-b border-slate-200 mb-6">
-                        <h1 className="text-[22pt] font-bold leading-tight mb-2 text-slate-900">{file.name}</h1>
-                        <p className="text-[14pt] text-slate-600">
-                          {assignmentTitle ? `หัวข้อ: ${assignmentTitle}` : 'เอกสารทางวิชาการ'} 
-                          {submitterName ? ` • ผู้ส่ง: ${submitterName}` : ''}
-                        </p>
-                      </div>
-
-                      {/* Document Body Content */}
-                      <div className="space-y-4 text-[16pt] leading-relaxed font-sarabun text-slate-900">
-                        <p className="indent-10">
-                          เอกสารฉบับนี้เป็นไฟล์ต้นฉบับแท้ ({file.name}) ขนาด {(file.size / 1024).toFixed(1)} KB 
-                          ประเภท {file.mimeType || 'เอกสารแนบ'} จัดเก็บอยู่ในระบบอย่างปลอดภัย
-                        </p>
-                        {file.previewContent ? (
-                          <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-[15pt] whitespace-pre-wrap">
-                            {file.previewContent}
-                          </div>
-                        ) : (
-                          <p className="indent-10 text-slate-700">
-                            ระบบได้จัดเตรียมไฟล์ต้นฉบับดิบไว้พร้อมสำหรับการเปิดอ่านและดาวน์โหลดเพื่อนำไปเปิดใช้งานผ่านโปรแกรมในเครื่องของท่านได้ทันที
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Document Footer */}
-                    <div className="pt-6 border-t border-slate-200 mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 select-none">
-                      <div className="text-[12pt] text-slate-500 font-sarabun">
-                        มาตรฐานเอกสาร A4 (210 × 297 มม.) • หน้า 1 จาก 1
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => triggerDirectDownload(file)}
-                        className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[14pt] font-semibold rounded-xl shadow-md transition-colors cursor-pointer"
-                      >
-                        <Download className="w-5 h-5" />
-                        <span>ดาวน์โหลดไฟล์ต้นฉบับ</span>
-                      </button>
-                    </div>
-                  </div>
+            {/* 6. GOOGLE DRIVE EMBED OR CLEAN DIRECT DOWNLOAD CARD */}
+            {!isPdf && !isDocx && !isSheet && !isImage && !file.previewContent && (
+              file.driveFileId || file.viewUrl ? (
+                <div className="w-full flex-1 flex flex-col p-2 sm:p-4 h-[calc(100vh-68px)]">
+                  <iframe
+                    src={getSafeGoogleDrivePreviewUrl(file) || file.viewUrl}
+                    className="w-full h-full border-0 bg-white rounded-xl shadow-2xl"
+                    title={file.name}
+                    allow="autoplay"
+                  />
                 </div>
-              </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-slate-800 text-purple-400 flex items-center justify-center mb-4 shadow-lg border border-slate-700">
+                    <File className="w-8 h-8" />
+                  </div>
+                  <h2 className="text-lg font-bold text-white mb-2">{file.name}</h2>
+                  <p className="text-sm text-slate-400 mb-6">{(file.size / 1024).toFixed(1)} KB • {file.mimeType || 'เอกสาร'}</p>
+                  <button
+                    type="button"
+                    onClick={() => triggerDirectDownload(file)}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl shadow-lg transition-colors cursor-pointer"
+                  >
+                    <Download className="w-5 h-5" />
+                    <span>ดาวน์โหลดไฟล์ต้นฉบับ</span>
+                  </button>
+                </div>
+              )
             )}
           </>
         )}
       </main>
 
-      {/* FLOATING SCROLL PAGE INDICATOR */}
-      {!loading && !error && file && totalPages >= 1 && (!isPdf || pdfViewMode === 'a4') && (
+      {/* FLOATING SCROLL PAGE INDICATOR (for multi-page Word documents) */}
+      {!loading && !error && file && isDocx && totalPages > 1 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 bg-slate-900/95 border border-purple-500/50 text-white rounded-full shadow-2xl backdrop-blur-md transition-all select-none">
           {totalPages > 1 && (
             <button
