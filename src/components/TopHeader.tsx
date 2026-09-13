@@ -87,7 +87,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 </h1>
               </div>
               <p className="text-xs text-slate-500 hidden md:block">
-                ระบบงานวิชาการ มอบหมายงาน-ส่งงาน และศูนย์เอกสาร
+                ระบบงานวิชาการ ระบบจัดการงาน และศูนย์เอกสาร
               </p>
             </div>
           </div>

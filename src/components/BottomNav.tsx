@@ -2,7 +2,6 @@ import React from 'react';
 import { 
   LayoutDashboard, 
   FileCheck2, 
-  FileSearch, 
   FolderGit2, 
   UtensilsCrossed 
 } from 'lucide-react';
@@ -35,8 +34,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
   const items: BottomNavItem[] = [
     { id: 'dashboard' as ActiveTab, label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'assignments' as ActiveTab, label: 'ส่งงาน', icon: FileCheck2 },
-    { id: 'tracking' as ActiveTab, label: 'ตรวจงาน', icon: FileSearch },
+    { id: 'assignments' as ActiveTab, label: 'ระบบจัดการงาน', icon: FileCheck2 },
     { id: 'documents' as ActiveTab, label: 'ศูนย์เอกสาร', icon: FolderGit2 },
     { id: 'lunch' as ActiveTab, label: 'อาหารกลางวัน', icon: UtensilsCrossed, isExternalLink: true, url: LUNCH_SCRIPT_URL },
   ];
@@ -46,7 +44,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       id="mobile-bottom-navigation"
       className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/98 backdrop-blur-md border-t border-purple-200/80 px-1 py-1 shadow-[0_-4px_24px_rgba(0,0,0,0.08)] transform translate-z-0"
     >
-      <div className="grid grid-cols-5 gap-0.5 items-center max-w-md mx-auto">
+      <div className="grid grid-cols-4 gap-1 items-center max-w-md mx-auto">
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;

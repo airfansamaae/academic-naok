@@ -436,7 +436,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       : 'bg-slate-950 text-white font-extrabold'
                   }`}
                 >
-                  {currentNotice.type === 'deadline' ? '🚨 กำหนดส่งงาน (มอบหมายงาน)' : '📢 ประกาศ & จัดกิจกรรม'}
+                  {currentNotice.type === 'deadline' ? '🚨 กำหนดส่งงาน (ระบบจัดการงาน)' : '📢 ประกาศ & จัดกิจกรรม'}
                 </span>
                 {currentNotice.date && (
                   <span
@@ -487,14 +487,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             ) : (
               <button
                 id="notice-banner-admin-manage-btn"
-                onClick={() => handleSelectTab(currentNotice.type === 'deadline' ? 'tracking' : 'assignments')}
+                onClick={() => handleSelectTab('assignments')}
                 className={`inline-flex items-center gap-1.5 px-3.5 py-2 sm:px-4 sm:py-2 text-xs font-black rounded-xl sm:rounded-2xl transition-all shadow-md transform hover:scale-105 active:scale-95 cursor-pointer ${
                   currentNotice.type === 'deadline'
                     ? 'bg-white text-red-700 hover:bg-red-50 shadow-red-950/40'
                     : 'bg-slate-950 text-white hover:bg-slate-900 shadow-slate-950/30'
                 }`}
               >
-                <span>{currentNotice.type === 'deadline' ? 'ดูการส่งงาน' : 'จัดการประกาศ/กิจกรรม'}</span>
+                <span>{currentNotice.type === 'deadline' ? 'ไปที่ระบบจัดการงาน' : 'จัดการประกาศ/กิจกรรม'}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             )}
@@ -787,7 +787,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div
                     key={item.id}
                     onClick={() => {
-                      handleSelectTab(isUserAdmin ? 'tracking' : 'assignments');
+                      handleSelectTab('assignments');
                     }}
                     className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 group hover:shadow-md ${
                       item.isOverdue
@@ -975,12 +975,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             <button
                               onClick={() => {
                                 setModalDateData(null);
-                                handleSelectTab('tracking');
+                                handleSelectTab('assignments');
                               }}
                               className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-xs"
                             >
                               <Users className="w-3.5 h-3.5" />
-                              <span>ดูการตรวจงานและรายชื่อสมาชิก</span>
+                              <span>ไปที่ระบบจัดการงาน</span>
                             </button>
                           )}
                         </div>

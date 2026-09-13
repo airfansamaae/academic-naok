@@ -2,7 +2,6 @@ import React from 'react';
 import { 
   LayoutDashboard, 
   FileCheck2, 
-  FileSearch, 
   FolderGit2, 
   UtensilsCrossed, 
   Settings, 
@@ -46,16 +45,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'assignments' as ActiveTab,
-      label: 'มอบหมายงาน & ส่งงาน',
-      sublabel: currentUser?.role === 'admin' ? 'สร้างงานและตรวจสอบการส่ง' : 'ส่งงานและดูงานที่มอบหมาย',
+      label: 'ระบบจัดการงาน',
+      sublabel: currentUser?.role === 'admin' ? 'สร้างงานและจัดการการส่งงาน' : 'ส่งงานและดูงานที่ได้รับมอบหมาย',
       icon: FileCheck2,
-      badge: null,
-    },
-    {
-      id: 'tracking' as ActiveTab,
-      label: 'ติดตามงาน & ตรวจงาน',
-      sublabel: 'ตรวจเช็คไฟล์และดาวน์โหลด',
-      icon: FileSearch,
       badge: null,
     },
     {

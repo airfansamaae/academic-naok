@@ -686,16 +686,16 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-none">
-              ระบบบริหารจัดการงานวิชาการ & ประกาศ
+              ระบบจัดการงาน
             </h2>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">
-              {activeSubTab === 'assignments' ? 'งานที่มอบหมาย' : 'ประกาศ & กิจกรรม'}
+              {activeSubTab === 'assignments' ? 'งานวิชาการ' : 'ประกาศ & กิจกรรม'}
             </span>
           </div>
           <p className="text-xs text-slate-500">
             {isAdmin 
-              ? 'จัดการมอบหมายงาน ตรวจสถานะ แก้ไข/ลบงานและประกาศกิจกรรม' 
-              : 'ตรวจสอบกำหนดส่ง ส่งงาน และแก้ไข/ลบงานที่ตนเองส่ง'}
+              ? 'จัดการงาน ตรวจสอบสถานะการส่งงาน แก้ไข/ลบงานและประกาศกิจกรรม' 
+              : 'ตรวจสอบกำหนดส่ง ส่งงาน และติดตามงานที่ตนเองส่ง'}
           </p>
         </div>
 
@@ -707,8 +707,8 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
               onClick={() => {
                 handleOpenPlusModal(activeSubTab === 'announcements' ? 'announcement' : 'assignment');
               }}
-              title={activeSubTab === 'announcements' ? 'สร้างประกาศใหม่ (+)' : 'มอบหมายงานใหม่ (+)'}
-              aria-label={activeSubTab === 'announcements' ? 'สร้างประกาศใหม่' : 'มอบหมายงานใหม่'}
+              title={activeSubTab === 'announcements' ? 'สร้างประกาศใหม่ (+)' : 'สร้างงานใหม่ (+)'}
+              aria-label={activeSubTab === 'announcements' ? 'สร้างประกาศใหม่' : 'สร้างงานใหม่'}
               className="w-10 h-10 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white flex items-center justify-center transition-all shadow-md shadow-purple-500/25 glow-purple-hover cursor-pointer group relative"
             >
               <Plus className="w-5 h-5 stroke-[2.5] transition-transform duration-200 group-hover:rotate-90" />
@@ -741,7 +741,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
           }`}
         >
           <FileText className="w-4 h-4" />
-          <span>งานที่มอบหมาย (Assignments)</span>
+          <span>รายการงาน (Assignments)</span>
           <span className={`px-2 py-0.2 rounded-full text-[10px] ${
             activeSubTab === 'assignments' ? 'bg-purple-800 text-purple-100' : 'bg-slate-200 text-slate-700'
           }`}>

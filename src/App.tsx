@@ -15,9 +15,6 @@ import {
   AssignmentsView 
 } from './components/AssignmentsView';
 import { 
-  TrackingView 
-} from './components/TrackingView';
-import { 
   DocumentCenterView 
 } from './components/DocumentCenterView';
 import { 
@@ -315,22 +312,13 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'assignments' && (
+          {(activeTab === 'assignments' || (activeTab as string) === 'tracking') && (
             <AssignmentsView
               currentUser={currentUser}
               assignments={assignments}
               submissions={submissions}
               users={users}
               announcements={announcements}
-              onOpenFilePreview={handleOpenFilePreview}
-            />
-          )}
-
-          {activeTab === 'tracking' && (
-            <TrackingView
-              currentUser={currentUser}
-              assignments={assignments}
-              submissions={submissions}
               onOpenFilePreview={handleOpenFilePreview}
             />
           )}
